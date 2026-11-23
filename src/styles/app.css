@@ -698,32 +698,134 @@ body,
   border-radius: 999px;
 }
 
-/* Player Energy Strip */
-.energy-strip {
+/* Compact Top-Corner Energy Bar (~96px wide, thin bar, subtle colors, zero obstruction) */
+.energy-compact {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  width: clamp(86px, 23vw, 102px);
+  padding: 3px 7px 4px;
+  border-radius: 10px;
+  background: rgba(252, 248, 242, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(139, 114, 92, 0.16);
+  color: var(--text-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.energy-compact-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border-soft);
-  font-size: 11px;
-  color: var(--text-primary);
-  box-shadow: 0 4px 14px rgba(74, 52, 34, 0.08);
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
-.energy-value {
+.energy-compact-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(117, 99, 85, 0.16);
+  overflow: hidden;
+}
+
+.energy-compact-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d8a24a, #e2b866);
+  transition: width 0.3s ease;
+}
+
+/* Red Quest Reward Notification Dot */
+.icon-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.quest-notif-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e23b3b;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(226, 59, 59, 0.45);
+  pointer-events: none;
+  animation: dotPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
+/* Welfare Warning Pill (Non-blocking, zero numeric hunger bar) */
+.welfare-chip {
+  align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(59, 41, 26, 0.12);
+  backdrop-filter: blur(8px);
 }
 
-.energy-regen-meta {
-  font-size: 10.5px;
-  color: var(--text-secondary);
+.welfare-mild {
+  background: rgba(255, 248, 232, 0.92);
+  color: #8a5a18;
+  border: 1px solid rgba(212, 154, 66, 0.35);
+}
+
+.welfare-escalating {
+  background: rgba(255, 240, 234, 0.94);
+  color: #9f3e22;
+  border: 1px solid rgba(207, 111, 114, 0.4);
+}
+
+.welfare-critical {
+  background: rgba(253, 230, 230, 0.96);
+  color: #9a1f24;
+  border: 1px solid rgba(210, 50, 56, 0.55);
+}
+
+/* Minimal Action Indicator Bar during full-body human interaction */
+.interaction-minimal-bar {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(59, 47, 39, 0.58);
+  color: #fff;
+  font-size: 11px;
   font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+/* Memorial Screen Styling */
+.memorial-card {
+  background: linear-gradient(180deg, #fdfaf5 0%, #f5ece1 100%);
+  text-align: center;
+  align-items: center;
+}
+
+.memorial-photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid rgba(200, 122, 86, 0.38);
+  box-shadow: 0 8px 22px rgba(74, 52, 34, 0.16);
 }
 
 /* Disabled care buttons while hand animation runs */

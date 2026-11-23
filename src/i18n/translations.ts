@@ -36,8 +36,14 @@ export const STAGE_LABELS: Record<LifeStage, { th: string; en: string; descTh: s
   adult: {
     th: 'แมวโตเต็มวัย',
     en: 'Adult Cat',
-    descTh: '12+ เดือน • รูปร่างสง่างาม นิสัยมั่นคง แสดงความรักได้ลึกซึ้ง',
-    descEn: '12+ mos • Fully grown, stable personality and deep social bond'
+    descTh: '1–7 ปี • รูปร่างสง่างาม นิสัยมั่นคง แสดงความรักได้ลึกซึ้ง',
+    descEn: '1–7 yrs • Fully grown, stable personality and deep social bond'
+  },
+  senior: {
+    th: 'แมวสูงวัย',
+    en: 'Senior Cat',
+    descTh: '7+ ปี • สุขุมนุ่มนวล ชอบพักผ่อนเงียบๆ และอ้อนอย่างอบอุ่น',
+    descEn: '7+ yrs • Gentle, calm, prefers cozy naps and quiet affection'
   }
 };
 
@@ -95,10 +101,16 @@ export const BODY_CONDITION_LABELS: Record<
     tipEn: 'Balanced, breed-healthy body proportions.'
   },
   overweight: {
-    th: 'อวบเกินเกณฑ์',
-    en: 'Overweight',
+    th: 'อวบเล็กน้อย',
+    en: 'Slightly Overweight',
     tipTh: 'พุงน้อยๆ เริ่มกลมขึ้นแล้ว ลองชวนเล่นออกกำลังกายและลดขนมแมวเลียลงเล็กน้อยนะ',
-    tipEn: 'A little chubby—more playful exercise and fewer treats will help!'
+    tipEn: 'Slightly chubby—more playful exercise and fewer treats will help!'
+  },
+  obese: {
+    th: 'น้ำหนักเกินมาก (อ้วน)',
+    en: 'Obese',
+    tipTh: 'รูปร่างกลมมากและเคลื่อนไหวช้าลง ควรควบคุมปริมาณอาหารและชวนเล่นเบาๆ อย่างสม่ำเสมอ',
+    tipEn: 'Visibly round and slower moving—gentle daily play and balanced meals will restore health.'
   }
 };
 
@@ -170,17 +182,25 @@ export const UI_TEXT = {
     exitPhoto: 'ออก',
     refillWater: 'เติมน้ำสะอาด (ฟรี)',
     petCat: 'ลูบหัวเบาๆ',
+    pickupCat: 'อุ้มน้องแมว',
     brushCat: 'แปรงขนฟู',
     tuckSleep: 'ให้พักผ่อน',
     respectSpace: 'ให้พื้นที่สงบ',
     cleanLitter: 'ตักทรายแมว',
     cleanMess: 'จัดห้อง/เก็บแก้ว',
+    wardrobe: 'แต่งตัวเจ้าของ',
     catProfile: 'ข้อมูล & นิสัยแมว',
-    tapCatHint: 'สังเกตอารมณ์จากหู หาง และเสียงร้อง • แตะตัวน้องแมวเพื่อลูบด้วยมือ',
-    featherHint: 'ลากนิ้วไปมาบนจอเพื่อแกว่งไม้ตกแมวด้วยมือ',
+    tapCatHint: 'สังเกตอารมณ์จากหู หาง และเสียงร้อง • แตะตัวน้องแมวเพื่อเดินเข้าไปลูบ',
+    featherHint: 'ลากนิ้วไปมาบนจอเพื่อแกว่งไม้ตกแมวเล่นกับน้อง',
     ballHint: 'แตะหรือปัดบนพื้นห้องเพื่อกลิ้งลูกบอล',
     decorateHint: 'แตะเฟอร์นิเจอร์เพื่อเลือก ย้ายตำแหน่ง หรือหมุน',
     stopToy: 'เก็บของเล่น',
+    survivalMode: 'โหมดการเอาชีวิตรอด',
+    standardMode: 'โหมดมาตรฐาน',
+    casualMode: 'โหมดสบาย (ไม่เสียชีวิต)',
+    offlineGrace: 'ระยะผ่อนผันเมื่อปิดเกม',
+    claimReward: 'รับรางวัล',
+    memories: 'ความทรงจำ',
     buy: 'ซื้อ',
     owned: 'มีแล้ว',
     inStock: 'คงเหลือ',
@@ -258,17 +278,25 @@ export const UI_TEXT = {
     exitPhoto: 'Exit',
     refillWater: 'Fresh Water (Free)',
     petCat: 'Pet Gently',
+    pickupCat: 'Pick Up Cat',
     brushCat: 'Brush Fluffy Fur',
     tuckSleep: 'Let Rest',
     respectSpace: 'Give Personal Space',
     cleanLitter: 'Clean Litter',
     cleanMess: 'Tidy Room / Mug',
+    wardrobe: 'Avatar & Clothes',
     catProfile: 'Cat Profile & Traits',
-    tapCatHint: 'Read ears, tail & vocal cues • Tap cat gently to pet by hand',
-    featherHint: 'Drag across screen to wave the feather wand by hand',
+    tapCatHint: 'Read ears, tail & vocal cues • Tap cat to walk over & pet',
+    featherHint: 'Drag across screen to play with the feather wand',
     ballHint: 'Tap or swipe on the floor to roll the ball',
     decorateHint: 'Tap furniture to move or rotate • Green = valid',
     stopToy: 'Put Toy Away',
+    survivalMode: 'Survival Mode',
+    standardMode: 'Standard',
+    casualMode: 'Casual (No Death)',
+    offlineGrace: 'Offline Grace Period',
+    claimReward: 'Claim Reward',
+    memories: 'Memories',
     buy: 'Buy',
     owned: 'Owned',
     inStock: 'Stock',

@@ -4,15 +4,16 @@ import { useGameStore } from '../store/useGameStore';
 import { QualityPreset, Vec2 } from '../types/game';
 import { CameraController } from './CameraController';
 import { CatRig } from './CatRig';
-import { HumanHandRig } from './HumanHandRig';
+import { HumanCharacterRig } from './HumanCharacterRig';
 import { ParticleOverlay } from './ParticleOverlay';
 import { RoomBuilder } from './RoomBuilder';
 import { ToyController } from './ToyController';
 
 /**
  * Main Three.js real-time engine coordinating rendering, cozy daylight lighting,
- * mobile touch/pointer raycasting, interactive toys, first-person 3D human hand,
- * automatic cat equipment animations, decoration drag, and photo capture.
+ * mobile touch/pointer raycasting, interactive toys, full 3D human character rig,
+ * automatic cat equipment animations, decoration drag, third-person camera framing,
+ * and photo capture.
  */
 export class GameEngine {
   private readonly container: HTMLElement;
@@ -21,13 +22,17 @@ export class GameEngine {
   private readonly cameraCtrl: CameraController;
   private readonly roomBuilder: RoomBuilder;
   private readonly catRig: CatRig;
-  private readonly humanHandRig: HumanHandRig;
+  private readonly humanRig: HumanCharacterRig;
   private readonly toyCtrl: ToyController;
   private readonly particles: ParticleOverlay;
   private readonly sunLight: THREE.DirectionalLight;
 
   private readonly raycaster = new THREE.Raycaster();
   private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly tmpHandPos = new THREE.Vector3();
+  private readonly tmpCarryPos = new THREE.Vector3();
+  private readonly tmpHumanPos = new THREE.Vector3();
+  private readonly tmpCatPos = new THREE.Vector3();
 
   private rafId: number | null = null;
   private lastFrameMs = performance.now();
@@ -67,14 +72,14 @@ export class GameEngine {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#efe4d6');
-    this.scene.fog = new THREE.Fog('#efe4d6', 7.5, 16);
+    this.scene.fog = new THREE.Fog('#efe4d6', 8.5, 18);
 
     // Warm cozy sunlit lighting rig
-    const hemi = new THREE.HemisphereLight('#fff7eb', '#d1b598', 1.15);
+    const hemi = new THREE.HemisphereLight('#fff7eb', '#d1b598', 1.18);
     this.scene.add(hemi);
 
     this.sunLight = new THREE.DirectionalLight('#fff0d4', 1.75);
-    this.sunLight.position.set(2.8, 4.4, -3.4); // Streaming from the sunlit window
+    this.sunLight.position.set(2.8, 4.4, -3.4);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 14;
@@ -85,7 +90,7 @@ export class GameEngine {
     this.sunLight.shadow.bias = -0.0008;
     this.scene.add(this.sunLight);
 
-    const fillLight = new THREE.DirectionalLight('#e8eef7', 0.45);
+    const fillLight = new THREE.DirectionalLight('#e8eef7', 0.48);
     fillLight.position.set(-3.0, 2.6, 3.2);
     this.scene.add(fillLight);
 
@@ -93,12 +98,12 @@ export class GameEngine {
     this.roomBuilder = new RoomBuilder();
     this.scene.add(this.roomBuilder.roomGroup);
 
-    const initialCat = useGameStore.getState().cat;
-    this.catRig = new CatRig(initialCat.identity);
+    const initState = useGameStore.getState();
+    this.catRig = new CatRig(initState.cat.identity);
     this.scene.add(this.catRig.root);
 
-    this.humanHandRig = new HumanHandRig();
-    this.scene.add(this.humanHandRig.root);
+    this.humanRig = new HumanCharacterRig(initState.humanAppearance);
+    this.scene.add(this.humanRig.root);
 
     this.toyCtrl = new ToyController();
     this.scene.add(this.toyCtrl.root);
@@ -106,8 +111,13 @@ export class GameEngine {
     this.particles = new ParticleOverlay();
     this.scene.add(this.particles.root);
 
-    this.cameraCtrl.focusOn(initialCat.position.x, 0.2, initialCat.position.z, 1.95);
-    this.applyQuality(useGameStore.getState().settings.quality);
+    this.cameraCtrl.focusOn(
+      (initState.cat.position.x + initState.human.position.x) * 0.5,
+      0.55,
+      (initState.cat.position.z + initState.human.position.z) * 0.5,
+      2.65
+    );
+    this.applyQuality(initState.settings.quality);
 
     this.bindEvents();
     this.start();
@@ -161,7 +171,6 @@ export class GameEngine {
         const pt = this.raycastFloor(e.clientX, e.clientY);
         if (pt) this.toyCtrl.moveFeatherTo(pt);
       } else if (state.decorateMode && state.selectedFurnitureInstanceId) {
-        // Check if dragging the currently selected furniture
         const ndc = this.getNDC(e.clientX, e.clientY);
         this.raycaster.setFromCamera(ndc, this.cameraCtrl.camera);
         const hits = this.raycaster.intersectObjects(this.roomBuilder.furnitureRoot.children, true);
@@ -200,7 +209,6 @@ export class GameEngine {
       return;
     }
 
-    // Placement ghost preview while placing a newly chosen furniture item
     if (state.decorateMode && state.placingCatalogId) {
       const pt = this.raycastFloor(e.clientX, e.clientY);
       if (pt) {
@@ -325,16 +333,14 @@ export class GameEngine {
       }
     }
 
-    // 3. Tap on Cat -> focus & pet gently!
+    // 3. Tap on Cat -> human walks over and pets gently!
     const catHits = this.raycaster.intersectObjects(this.catRig.root.children, true);
     if (catHits.length > 0) {
-      const pos = state.cat.position;
-      this.cameraCtrl.focusOn(pos.x, pos.y + 0.16, pos.z, 1.55);
       state.petCat();
       return;
     }
 
-    // 4. Tap on Furniture -> focus + helpful contextual interaction
+    // 4. Tap on Furniture -> contextual human interaction
     const furnHits = this.raycaster.intersectObjects(
       this.roomBuilder.furnitureRoot.children,
       true
@@ -386,7 +392,7 @@ export class GameEngine {
         state.activateToy('cardboard_box');
         return;
       }
-      this.cameraCtrl.focusOn(hitPt.x, 0.25, hitPt.z);
+      this.cameraCtrl.focusOn(hitPt.x, 0.35, hitPt.z);
       return;
     }
 
@@ -415,8 +421,8 @@ export class GameEngine {
   }
 
   public focusOnCat(): void {
-    const pos = useGameStore.getState().cat.position;
-    this.cameraCtrl.focusOn(pos.x, pos.y + 0.16, pos.z, 1.65);
+    const st = useGameStore.getState();
+    this.cameraCtrl.focusOn(st.cat.position.x, st.cat.position.y + 0.32, st.cat.position.z, 2.2);
   }
 
   public capturePhotoDataUrl(): string {
@@ -434,34 +440,34 @@ export class GameEngine {
       const state = useGameStore.getState();
       this.applyQuality(state.settings.quality);
 
-      // Synchronize active visible-hand interaction commit/finish with animation clock
-      if (state.activeCareAction) {
-        const elapsedActionMs = Date.now() - state.activeCareAction.startedAtMs;
-        if (!state.activeCareAction.committed && elapsedActionMs >= state.activeCareAction.contactAtMs) {
-          state.commitActiveCareAction();
-        }
-        if (elapsedActionMs >= state.activeCareAction.durationMs) {
-          state.finishActiveCareAction();
-        }
-      }
-
       // Sync active toy state changes
       if (this.lastToyState !== state.activeToy) {
         this.lastToyState = state.activeToy;
         this.toyCtrl.setActiveToy(state.activeToy, state.cat.position);
       }
 
-      // Step 3D toy physics & get target for cat AI
-      const toyTarget = this.toyCtrl.update(dt, state.cat.position, () => {
-        useGameStore.getState().recordToyPlayReward();
-      });
+      // Compute human right hand position so Feather Wand attaches directly to the 3D human's hand!
+      const handWorld =
+        state.activeToy === 'feather_wand'
+          ? this.humanRig.getRightHandWorldPosition(this.tmpHandPos)
+          : null;
 
-      // Step headless simulation
+      // Step 3D toy physics & get target for cat AI
+      const toyTarget = this.toyCtrl.update(
+        dt,
+        state.cat.position,
+        () => {
+          useGameStore.getState().recordToyPlayReward();
+        },
+        handWorld
+      );
+
+      // Step headless simulation (includes human navigation, centralized action controller, cat AI, growth, survival)
       const soundCue = this.pendingSoundPos;
       this.pendingSoundPos = null;
       state.stepSimulation(
         dt,
-        { x: this.cameraCtrl.target.x, z: this.cameraCtrl.target.z },
+        { x: state.human.position.x, z: state.human.position.z },
         toyTarget,
         soundCue
       );
@@ -494,31 +500,67 @@ export class GameEngine {
       }
       this.particles.update(dt);
 
-      // Update CatRig look-at target (toy > camera if bonded)
-      let lookTarget: THREE.Vector3 | null = null;
-      if (toyTarget) {
-        lookTarget = new THREE.Vector3(toyTarget.x, toyTarget.y, toyTarget.z);
-      } else if (latest.cat.bondLevel >= 5 || latest.cat.behavior === 'approach_player') {
-        lookTarget = this.cameraCtrl.camera.position;
-      }
-      this.catRig.update(latest.cat, dt, lookTarget);
-
-      // Update Camera
-      const followVec =
-        latest.settings.followCat && !latest.decorateMode
-          ? new THREE.Vector3(latest.cat.position.x, latest.cat.position.y, latest.cat.position.z)
-          : null;
-      this.cameraCtrl.update(dt, followVec);
-
-      // Update Visible First-Person 3D Human Hand & Care Tools
-      this.humanHandRig.update(
+      // Update Full 3D Human Character Rig FIRST so carry cradle & hand anchors are fresh!
+      this.humanRig.root.visible = latest.hasCreatedHuman || latest.hasAdoptedInitialCat;
+      this.humanRig.update(
         dt,
-        this.cameraCtrl.camera,
+        latest.humanAppearance,
+        latest.human,
         latest.cat,
         latest.placedFurniture,
         latest.activeCareAction,
         toyTarget
       );
+
+      // Update CatRig (supports smooth cradling in human arms during pickup!)
+      this.catRig.root.visible = latest.survival.isAlive;
+      let lookTarget: THREE.Vector3 | null = null;
+      if (toyTarget) {
+        lookTarget = new THREE.Vector3(toyTarget.x, toyTarget.y, toyTarget.z);
+      } else if (
+        latest.activeCareAction !== null ||
+        latest.cat.bondLevel >= 5 ||
+        latest.cat.behavior === 'approach_player' ||
+        latest.cat.behavior === 'head_bunt'
+      ) {
+        lookTarget = new THREE.Vector3(
+          latest.human.position.x,
+          latest.human.position.y + 0.95,
+          latest.human.position.z
+        );
+      }
+
+      const carriedOverride = latest.human.carryingCat
+        ? {
+            pos: this.humanRig.getCarryWorldPosition(this.tmpCarryPos),
+            yaw: latest.human.rotationY + Math.PI * 0.5
+          }
+        : null;
+      this.catRig.update(latest.cat, dt, lookTarget, carriedOverride);
+
+      // Update Third-Person Camera (smoothly frames BOTH human & cat during interactions!)
+      this.tmpHumanPos.set(
+        latest.human.position.x,
+        latest.human.position.y,
+        latest.human.position.z
+      );
+      this.tmpCatPos.set(latest.cat.position.x, latest.cat.position.y, latest.cat.position.z);
+
+      if (latest.activeCareAction && !latest.decorateMode) {
+        this.cameraCtrl.frameInteraction(
+          this.tmpHumanPos,
+          this.tmpCatPos,
+          latest.activeCareAction.type
+        );
+        this.cameraCtrl.update(dt, null);
+      } else {
+        this.cameraCtrl.endInteractionFraming();
+        const followCatVec =
+          latest.settings.followCat && !latest.decorateMode ? this.tmpCatPos : null;
+        const secondaryHumanVec =
+          latest.settings.followCat && !latest.decorateMode ? this.tmpHumanPos : null;
+        this.cameraCtrl.update(dt, followCatVec, secondaryHumanVec);
+      }
 
       this.renderer.render(this.scene, this.cameraCtrl.camera);
     };

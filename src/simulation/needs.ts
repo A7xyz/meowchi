@@ -75,11 +75,11 @@ export function tickNeeds(
 
   // Age-appropriate metabolic hunger & thirst curves
   const hungerDecay =
-    isNewborn ? 1.4 : cat.lifeStage === 'young_kitten' ? 1.1 : 0.92;
-  const thirstDecay = isNewborn ? 0.85 : 1.02;
+    isNewborn ? 1.4 : cat.lifeStage === 'young_kitten' ? 1.1 : cat.lifeStage === 'senior' ? 0.85 : 0.92;
+  const thirstDecay = isNewborn ? 0.9 : 1.02;
 
-  n.hunger = clamp(n.hunger - hungerDecay * effectiveMinutes, 5, 100);
-  n.thirst = clamp(n.thirst - thirstDecay * effectiveMinutes, 10, 100);
+  n.hunger = clamp(n.hunger - hungerDecay * effectiveMinutes, 0, 100);
+  n.thirst = clamp(n.thirst - thirstDecay * effectiveMinutes, 0, 100);
 
   if (isSleeping) {
     const bedBonus = onSmartBed ? 1.35 : 1.0;
@@ -122,11 +122,15 @@ export function tickNeeds(
   }
 
   const weightPenalty =
-    cat.weight.condition === 'overweight' || cat.weight.condition === 'underweight' ? 0.2 : 0;
+    cat.weight.condition === 'obese'
+      ? 0.35
+      : cat.weight.condition === 'overweight' || cat.weight.condition === 'underweight'
+        ? 0.2
+        : 0;
   if (n.hunger > 22 && n.thirst > 22 && n.hygiene > 25) {
-    n.health = clamp(n.health + (0.45 - weightPenalty) * effectiveMinutes, 25, 100);
+    n.health = clamp(n.health + (0.45 - weightPenalty) * effectiveMinutes, 0, 100);
   } else {
-    n.health = clamp(n.health - 0.3 * effectiveMinutes, 25, 100);
+    n.health = clamp(n.health - 0.32 * effectiveMinutes, 0, 100);
   }
 
   return { needs: n, room: r };
@@ -802,5 +806,89 @@ export function performCleanRoomAction(cat: CatRuntimeState, room: RoomStatus): 
     xpEarned: 6,
     bondLeveledUp: bond.leveledUp,
     vocalCue: 'clean'
+  };
+}
+
+/**
+ * Full-body human Pick Up & Hold Cat action:
+ * - Respects defensive/fearful/low-trust boundaries (shy/defensive cats may squirm away).
+ * - Affectionate/trusted cats purr warmly while gently supported and put back down.
+ * - Zero Coins generated (anti-exploit).
+ */
+export function performPickupAction(
+  cat: CatRuntimeState,
+  room: RoomStatus,
+  nowUtc: number = Date.now()
+): CareActionResult {
+  const isNewborn = cat.lifeStage === 'newborn';
+  const { traits, needs } = cat;
+
+  if (
+    !isNewborn &&
+    (cat.behavior === 'hiss_defend' ||
+      (nowUtc < cat.calmDownUntilUtc && needs.stress >= 45) ||
+      (cat.ignoredWarningsCount >= 2 && needs.stress >= 55))
+  ) {
+    return buildDefensiveBiteResult(cat, room, nowUtc);
+  }
+
+  if (
+    !isNewborn &&
+    (needs.stress >= 52 || (traits.fearfulness >= 60 && traits.trust < 42) || (traits.aggression >= 62 && traits.affection < 45))
+  ) {
+    const nextTraits = evolvePersonality(traits, 'unwanted_touch');
+    const nextCat: CatRuntimeState = {
+      ...cat,
+      needs: { ...needs, stress: clamp(needs.stress + 16, 0, 100) },
+      traits: nextTraits,
+      behavior: traits.aggression >= 55 ? 'hiss_defend' : 'hide',
+      behaviorTimer: 3.6,
+      isPurring: false,
+      ignoredWarningsCount: cat.ignoredWarningsCount + 1
+    };
+    nextCat.emotion = evaluateCatEmotion(nextCat);
+    return {
+      success: false,
+      refused: true,
+      messageTh: `${cat.identity.name} ยังไม่พร้อมให้อุ้มตอนนี้และค่อยๆ ถอยห่างออกไป ลองสร้างความไว้ใจก่อนนะ`,
+      messageEn: `${cat.identity.name} isn't comfortable being picked up right now and gently slips away.`,
+      cat: nextCat,
+      room,
+      coinsEarned: 0,
+      xpEarned: 0,
+      bondLeveledUp: false,
+      vocalCue: traits.aggression >= 55 ? 'hiss' : 'distress'
+    };
+  }
+
+  const nextTraits = evolvePersonality(traits, 'gentle_pet');
+  const bond = addBondPoints(cat.bondLevel, cat.bondXp, 14);
+  const nextCat: CatRuntimeState = {
+    ...cat,
+    needs: {
+      ...needs,
+      happiness: clamp(needs.happiness + 14, 0, 100),
+      stress: clamp(needs.stress - 12, 0, 100)
+    },
+    traits: nextTraits,
+    bondLevel: bond.bondLevel,
+    bondXp: bond.bondXp,
+    isPurring: true,
+    behavior: 'sit',
+    behaviorTimer: 4.0,
+    ignoredWarningsCount: 0
+  };
+  nextCat.emotion = evaluateCatEmotion(nextCat);
+
+  return {
+    success: true,
+    messageTh: `คุณค่อยๆ อุ้ม ${cat.identity.name} ขึ้นมาอย่างอ่อนโยน น้องครางเบาๆ ในอ้อมแขนก่อนวางลงอย่างปลอดภัย`,
+    messageEn: `You gently scoop up ${cat.identity.name}, hold them close while they purr, and set them softly back down.`,
+    cat: nextCat,
+    room,
+    coinsEarned: 0,
+    xpEarned: 8,
+    bondLeveledUp: bond.leveledUp,
+    vocalCue: isNewborn ? 'kitten_mew' : 'purr'
   };
 }

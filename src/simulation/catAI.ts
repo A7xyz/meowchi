@@ -18,6 +18,9 @@ export interface AIContext {
   room: RoomStatus;
   equipment?: EquipmentStateMap;
   playerFocusPoint: Vec2;
+  humanPosition?: Vec2;
+  humanIsApproaching?: boolean;
+  catIsCarried?: boolean;
   activeToyTarget: { type: string; x: number; y: number; z: number } | null;
   soundEventPos: Vec2 | null;
   rng?: () => number;
@@ -160,8 +163,17 @@ export function chooseNextBehavior(
     };
   }
 
+  // Weak / unwell survival warning behavior: reduced activity, reduced toy interest, sleeps more
+  const isWeakOrUnwell = cat.needs.health < 45 || cat.needs.thirst < 22 || cat.needs.hunger < 22;
+
   // Active interactive toy tracking (crouch & wiggle before pouncing!)
-  if (ctx.activeToyTarget && metrics.canUseToys && cat.needs.energy > 18 && cat.needs.stress < 55) {
+  if (
+    ctx.activeToyTarget &&
+    metrics.canUseToys &&
+    cat.needs.energy > 18 &&
+    cat.needs.stress < 55 &&
+    (!isWeakOrUnwell || rand() < 0.22)
+  ) {
     const playChance = clamp(
       0.38 + (tr.playfulness / 100) * 0.58 - (tr.fearfulness / 100) * 0.22,
       0.2,
@@ -240,23 +252,28 @@ export function chooseNextBehavior(
   };
   const candidates: Candidate[] = [];
 
-  // 1. Sleep & Yawn when tired (strongly prefers Smart Cat Bed if available)
+  // 1. Sleep & Yawn when tired, senior, or feeling weak (strongly prefers Smart Cat Bed if available)
+  const humanAnchor = ctx.humanPosition ?? ctx.playerFocusPoint;
+  const weakSleepBonus = isWeakOrUnwell ? 1.85 : 1.0;
+  const seniorSleepBonus = cat.lifeStage === 'senior' ? 1.45 : 1.0;
   const sleepWeight =
     (cat.needs.energy < 30 ? 96 : cat.needs.energy < 55 ? 36 : 10) *
     (1.32 - tr.playfulness / 210) *
-    (smartBed ? 1.15 : 1.0);
+    (smartBed ? 1.15 : 1.0) *
+    weakSleepBonus *
+    seniorSleepBonus;
   const sleepSpot: Vec2 | null =
     smartBed
       ? { x: smartBed.x, z: smartBed.z }
       : bond.sleepsNearby && rand() < 0.42
         ? {
             x: clamp(
-              ctx.playerFocusPoint.x + (rand() - 0.5) * 0.6,
+              humanAnchor.x + (rand() - 0.5) * 0.65,
               -ROOM_HALF_WIDTH + 0.5,
               ROOM_HALF_WIDTH - 0.5
             ),
             z: clamp(
-              ctx.playerFocusPoint.z + (rand() - 0.5) * 0.6,
+              humanAnchor.z + (rand() - 0.5) * 0.65,
               -ROOM_HALF_DEPTH + 0.5,
               ROOM_HALF_DEPTH - 0.5
             )
@@ -338,6 +355,17 @@ export function chooseNextBehavior(
         targetFurnitureId: waterBowl.instanceId,
         vocalCue: 'drink'
       });
+    } else if (waterBowl || waterFountain) {
+      // Survival warning cue: thirsty cat visits empty water bowl & meows softly for water!
+      const emptyWaterSpot = waterFountain ?? waterBowl!;
+      candidates.push({
+        behavior: 'explore',
+        weight: cat.needs.thirst < 35 ? 88 : 42,
+        duration: 4.5,
+        targetPosition: getInteractionPointForFurniture(emptyWaterSpot, cat.position),
+        targetFurnitureId: emptyWaterSpot.instanceId,
+        vocalCue: cat.needs.thirst < 25 ? 'distress' : 'attention_meow'
+      });
     }
   }
 
@@ -376,20 +404,15 @@ export function chooseNextBehavior(
     targetFurnitureId: null
   });
 
-  // 7. REALISTIC PLAYFUL CAT BEHAVIORS (strongly boosted for playful cats!)
-  const playfulBoost = tr.playfulness >= 65 ? 1.55 : tr.playfulness >= 45 ? 1.0 : 0.45;
-  const agePlayFactor =
-    cat.lifeStage === 'young_kitten'
-      ? 1.35
-      : cat.lifeStage === 'adolescent'
-        ? 1.2
-        : cat.lifeStage === 'adult'
-          ? 0.9
-          : 0.7;
+  // 7. REALISTIC PLAYFUL CAT BEHAVIORS (scaled by personality, life-stage activityLevel & health!)
+  const playfulBoost =
+    (tr.playfulness >= 65 ? 1.55 : tr.playfulness >= 45 ? 1.0 : 0.45) *
+    (isWeakOrUnwell ? 0.25 : 1.0);
+  const agePlayFactor = metrics.activityLevel;
 
-  if (cat.needs.energy > 38 && cat.needs.stress < 45) {
+  if (cat.needs.energy > 38 && cat.needs.stress < 45 && !isWeakOrUnwell) {
     // 7a. Zoomies (sudden burst of multi-waypoint sprinting around the room!)
-    if (metrics.canRun && cat.weight.condition !== 'overweight') {
+    if (metrics.canRun && cat.weight.condition !== 'overweight' && cat.weight.condition !== 'obese') {
       candidates.push({
         behavior: 'zoomies',
         weight: (4 + tr.playfulness * 0.52) * playfulBoost * agePlayFactor,
@@ -436,7 +459,7 @@ export function chooseNextBehavior(
     }
 
     // 7e. Wiggling crouch preparing to pounce
-    if (metrics.canRun && cat.weight.condition !== 'overweight') {
+    if (metrics.canRun && cat.weight.condition !== 'overweight' && cat.weight.condition !== 'obese') {
       candidates.push({
         behavior: 'pounce_crouch',
         weight: (4 + tr.playfulness * 0.36) * playfulBoost,
@@ -479,24 +502,83 @@ export function chooseNextBehavior(
     });
   }
 
+  const distToHuman = Math.hypot(
+    humanAnchor.x - cat.position.x,
+    humanAnchor.z - cat.position.z
+  );
+
+  // Human-to-Cat Relationship AI:
+  // - Affectionate cat: approaches human, rubs legs (head_bunt), follows human
+  // - Playful cat: circles / runs playfully around human
+  // - Shy cat: watches cautiously from a distance or hides if approached closely
+  // - Defensive cat: shows warning or retreats when stressed & human is near
   const approachWeight =
-    tr.affection * 0.28 +
-    tr.sociability * 0.24 -
-    tr.fearfulness * 0.2 +
+    tr.affection * 0.3 +
+    tr.sociability * 0.26 -
+    tr.fearfulness * 0.22 +
     (bond.voluntarilyApproaches ? 14 : 0) +
     (bond.followsPlayer ? 12 : 0) +
-    (bond.requestsAffection ? 16 : 0);
+    (bond.requestsAffection ? 16 : 0) +
+    (ctx.humanIsApproaching && tr.affection >= 55 ? 24 : 0);
   if (approachWeight > 4 && cat.needs.stress < 45) {
+    const wantsLegRub = (rand() < 0.42 && (bond.greetsPlayer || tr.affection >= 62));
     candidates.push({
-      behavior: rand() < 0.35 && bond.greetsPlayer ? 'head_bunt' : 'approach_player',
+      behavior: wantsLegRub ? 'head_bunt' : 'approach_player',
       weight: approachWeight,
       duration: 4.8,
       targetPosition: {
-        x: clamp(ctx.playerFocusPoint.x, -ROOM_HALF_WIDTH + 0.5, ROOM_HALF_WIDTH - 0.5),
-        z: clamp(ctx.playerFocusPoint.z + 0.35, -ROOM_HALF_DEPTH + 0.5, ROOM_HALF_DEPTH - 0.5)
+        x: clamp(humanAnchor.x + (rand() - 0.5) * 0.28, -ROOM_HALF_WIDTH + 0.45, ROOM_HALF_WIDTH - 0.45),
+        z: clamp(humanAnchor.z + 0.34, -ROOM_HALF_DEPTH + 0.45, ROOM_HALF_DEPTH - 0.45)
       },
       targetFurnitureId: null,
-      vocalCue: rand() < 0.45 ? (isKitten ? 'kitten_mew' : 'happy_meow') : undefined
+      vocalCue: rand() < 0.48 ? (isKitten ? 'kitten_mew' : 'happy_meow') : undefined
+    });
+  }
+
+  // Playful cat runs playfully around the human character
+  if (tr.playfulness >= 58 && cat.needs.energy > 35 && cat.needs.stress < 40 && !isWeakOrUnwell && metrics.canRun) {
+    const orbitAngle = Math.atan2(cat.position.x - humanAnchor.x, cat.position.z - humanAnchor.z) + (rand() < 0.5 ? 1.3 : -1.3);
+    candidates.push({
+      behavior: 'run',
+      weight: 12 + tr.playfulness * 0.24,
+      duration: 3.4,
+      targetPosition: {
+        x: clamp(humanAnchor.x + Math.sin(orbitAngle) * 0.85, -ROOM_HALF_WIDTH + 0.5, ROOM_HALF_WIDTH - 0.5),
+        z: clamp(humanAnchor.z + Math.cos(orbitAngle) * 0.85, -ROOM_HALF_DEPTH + 0.5, ROOM_HALF_DEPTH - 0.5)
+      },
+      targetFurnitureId: null,
+      vocalCue: rand() < 0.35 ? 'play_chirp' : undefined
+    });
+  }
+
+  // Shy cat watches the human cautiously from a distance or hides if approached too closely
+  if (tr.fearfulness >= 55 && tr.trust < 55 && distToHuman < 1.35) {
+    const retreatYaw = Math.atan2(cat.position.x - humanAnchor.x, cat.position.z - humanAnchor.z);
+    const hideSpot =
+      box && ctx.humanIsApproaching
+        ? { x: box.x, z: box.z }
+        : {
+            x: clamp(cat.position.x + Math.sin(retreatYaw) * 0.9, -ROOM_HALF_WIDTH + 0.5, ROOM_HALF_WIDTH - 0.5),
+            z: clamp(cat.position.z + Math.cos(retreatYaw) * 0.9, -ROOM_HALF_DEPTH + 0.5, ROOM_HALF_DEPTH - 0.5)
+          };
+    candidates.push({
+      behavior: ctx.humanIsApproaching ? 'hide' : 'observe',
+      weight: 22 + tr.fearfulness * 0.45 + (ctx.humanIsApproaching ? 25 : 0),
+      duration: 4.5,
+      targetPosition: hideSpot,
+      targetFurnitureId: box && ctx.humanIsApproaching ? box.instanceId : null
+    });
+  }
+
+  // Defensive cat warns when overstimulated and human is close
+  if (tr.aggression >= 58 && cat.needs.stress >= 42 && distToHuman < 1.15) {
+    candidates.push({
+      behavior: 'hiss_defend',
+      weight: 20 + tr.aggression * 0.35 + cat.needs.stress * 0.3,
+      duration: 3.0,
+      targetPosition: null,
+      targetFurnitureId: null,
+      vocalCue: 'hiss'
     });
   }
 
@@ -623,6 +705,15 @@ export function stepCatAI(
   if (next.recentTouchDecayTimer <= 0 && next.recentTouchCount > 0) {
     next.recentTouchCount = Math.max(0, next.recentTouchCount - 1);
     next.recentTouchDecayTimer = 8;
+  }
+
+  // If cat is currently being carried in the human's arms, keep still and cozy!
+  if (ctx.catIsCarried) {
+    next.velocity = { x: 0, z: 0 };
+    next.behavior = 'sit';
+    next.isPurring = next.needs.stress < 45;
+    next.emotion = evaluateCatEmotion(next);
+    return { cat: next };
   }
 
   let roomEvent: AIStepResult['roomEvent'];
@@ -831,7 +922,16 @@ export function stepCatAI(
     ].includes(next.behavior);
 
   const weightSpeedFactor =
-    next.weight.condition === 'overweight' ? 0.78 : next.weight.condition === 'lean' ? 1.08 : 1.0;
+    next.weight.condition === 'obese'
+      ? 0.64
+      : next.weight.condition === 'overweight'
+        ? 0.78
+        : next.weight.condition === 'underweight'
+          ? 0.84
+          : next.weight.condition === 'lean'
+            ? 1.08
+            : 1.0;
+  const healthSpeedFactor = next.needs.health < 45 ? 0.72 : 1.0;
 
   if (isMovingState && next.targetPosition) {
     const dx = next.targetPosition.x - next.position.x;
@@ -897,7 +997,8 @@ export function stepCatAI(
 
       // Smooth deceleration as cat approaches its arrival radius (no sliding!)
       const brakingFactor = clamp(dist / 0.55, 0.28, 1.0);
-      const targetSpeed = metrics.maxMoveSpeed * speedFactor * weightSpeedFactor * brakingFactor;
+      const targetSpeed =
+        metrics.maxMoveSpeed * speedFactor * weightSpeedFactor * healthSpeedFactor * brakingFactor;
       const desiredVx = (dx / dist) * targetSpeed;
       const desiredVz = (dz / dist) * targetSpeed;
 
@@ -984,8 +1085,9 @@ export function stepCatAI(
       } else if (next.behavior === 'observe') {
         next.rotationY = lerpAngle(next.rotationY, Math.PI, dt * 4);
       } else if (next.behavior === 'approach_player' || next.behavior === 'head_bunt') {
-        const pdx = ctx.playerFocusPoint.x - next.position.x;
-        const pdz = ctx.playerFocusPoint.z - next.position.z;
+        const facePt = ctx.humanPosition ?? ctx.playerFocusPoint;
+        const pdx = facePt.x - next.position.x;
+        const pdz = facePt.z - next.position.z;
         if (Math.hypot(pdx, pdz) > 0.05) {
           next.rotationY = lerpAngle(next.rotationY, Math.atan2(pdx, pdz), dt * 4);
         }

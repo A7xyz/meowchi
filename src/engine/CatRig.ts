@@ -51,6 +51,7 @@ export class CatRig {
   private readonly legs: {
     pivot: THREE.Group;
     lower: THREE.Group;
+    paw: THREE.Mesh;
     isFront: boolean;
     isLeft: boolean;
   }[] = [];
@@ -402,7 +403,7 @@ export class CatRig {
       pawMesh.castShadow = true;
       lower.add(pawMesh);
 
-      this.legs.push({ pivot, lower, isFront: spec.isFront, isLeft: spec.isLeft });
+      this.legs.push({ pivot, lower, paw: pawMesh, isFront: spec.isFront, isLeft: spec.isLeft });
     }
 
     // 4-Segment Fluffy Articulated Tail with soft fur plumes
@@ -584,7 +585,8 @@ export class CatRig {
   public update(
     state: CatRuntimeState,
     dt: number,
-    lookAtWorld?: THREE.Vector3 | null
+    lookAtWorld?: THREE.Vector3 | null,
+    carriedOverride?: { pos: THREE.Vector3; yaw: number } | null
   ): void {
     this.applyAppearance(state.identity);
     this.syncAccessory(state.identity.equippedAccessory);
@@ -593,25 +595,37 @@ export class CatRig {
     const metrics = computeGrowthMetrics(state.identity.breed, state.ageDays);
     const emotion = state.emotion;
 
-    this.animClock += dt;
+    this.animClock += dt * metrics.animSpeedFactor;
 
-    // 1. World position & facing
-    this.root.position.set(state.position.x, state.position.y, state.position.z);
-    this.root.rotation.y = state.rotationY;
+    // 1. World position & facing (supports smooth cradling in human arms during pickup!)
+    if (carriedOverride) {
+      this.root.position.copy(carriedOverride.pos);
+      this.root.rotation.y = carriedOverride.yaw;
+    } else {
+      this.root.position.set(state.position.x, state.position.y, state.position.z);
+      this.root.rotation.y = state.rotationY;
+    }
 
-    // 2. Continuous Growth + Breed Morphology + Dynamic Weight/Body Condition Morphing!
-    const fat = clamp(state.weight.bodyFatIndex, -0.75, 0.85);
-    const widthWeightFactor = 1 + fat * 0.28;   // Lean slims waist; overweight widens torso gradually
-    const bellyScaleY = 0.72 + Math.max(0, fat) * 0.55 - Math.max(0, -fat) * 0.28;
+    // 2. Continuous 6-Stage Growth + Breed Morphology + 5-Tier Dynamic Weight/Body Condition Morphing!
+    const fat = clamp(state.weight.bodyFatIndex, -0.78, 0.95);
+    const obeseExtra = Math.max(0, fat - 0.45) * 0.42;
+    const widthWeightFactor = 1 + fat * 0.34 + obeseExtra; // Underweight thins waist; obese widens torso
+    const bellyScaleY =
+      0.72 + Math.max(0, fat) * 0.62 + obeseExtra * 0.65 - Math.max(0, -fat) * 0.32;
+    const bellyScaleX = 0.92 * widthWeightFactor + obeseExtra * 0.28;
 
-    this.root.scale.setScalar(metrics.bodyScale);
+    this.root.scale.set(
+      metrics.bodyScale,
+      metrics.bodyScale * metrics.heightRatio,
+      metrics.bodyScale
+    );
     this.torsoGroup.scale.set(
       morph.torsoWidth * widthWeightFactor,
-      1 + Math.max(0, fat) * 0.14,
-      morph.torsoLength
+      1 + Math.max(0, fat) * 0.18 + obeseExtra * 0.25,
+      morph.torsoLength * metrics.bodyLengthRatio
     );
-    this.bellyFurMesh.scale.set(0.92 * widthWeightFactor, bellyScaleY, 1.48);
-    this.bellyFurMesh.position.y = -0.042 - Math.max(0, fat) * 0.018;
+    this.bellyFurMesh.scale.set(bellyScaleX, bellyScaleY, 1.48 + Math.max(0, fat) * 0.16);
+    this.bellyFurMesh.position.y = -0.042 - Math.max(0, fat) * 0.024 - obeseExtra * 0.015;
 
     this.headGroup.scale.set(
       metrics.headRatio * morph.headWidth,
@@ -622,7 +636,7 @@ export class CatRig {
     this.earLeftPivot.scale.setScalar(metrics.earRatio * morph.earSize);
     this.earRightPivot.scale.setScalar(metrics.earRatio * morph.earSize);
 
-    // Fluffiness & natural fur micro-movement (grows gradually with age coatMaturity!)
+    // Fluffiness & natural fur micro-movement (grows gradually with age coatMaturity & senior softness!)
     const fluffFactor = morph.furFluffiness * (0.68 + metrics.coatMaturity * 0.32);
     this.cheekFluffGroup.scale.setScalar(0.65 + fluffFactor * 0.65);
     const puffUp = emotion === 'defensive_angry' ? 1.3 : 1.0; // Piloerection when hissing/biting!
@@ -640,6 +654,7 @@ export class CatRig {
 
     for (const leg of this.legs) {
       leg.pivot.scale.set(1, metrics.legRatio * morph.legLength, 1);
+      leg.paw.scale.setScalar(metrics.pawScale);
     }
     this.tailSegments[0].scale.set(
       morph.tailPlushness * 0.92,

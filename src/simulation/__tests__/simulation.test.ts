@@ -11,8 +11,14 @@ import {
   ROOM_HALF_WIDTH
 } from '../../config/catalog';
 import { ECONOMY_CONFIG, evaluateMinigameReward } from '../../config/economy';
+import {
+  createDefaultHumanAppearance,
+  HUMAN_BOTTOM_STYLES,
+  HUMAN_HAIR_STYLES,
+  HUMAN_TOP_STYLES
+} from '../../config/human';
 import { createInitialSaveData, validateAndMigrateSave } from '../../persistence/saveManager';
-import { useGameStore } from '../../store/useGameStore';
+import { countClaimableQuests, useGameStore } from '../../store/useGameStore';
 import { addBondPoints, getBondCapabilities } from '../bond';
 import { chooseNextBehavior, stepCatAI } from '../catAI';
 import { resolveCatCollision, validateFurniturePlacement } from '../collision';
@@ -40,15 +46,28 @@ import {
   isFoodSafeForAge
 } from '../growth';
 import {
+  computeActionInteractionSpots,
+  createInitialHumanState,
+  stepHumanNavigation
+} from '../humanNav';
+import {
   applyOfflineElapsed,
   performBrushAction,
   performFeedAction,
   performPetAction,
+  performPickupAction,
   performRespectSpaceAction,
   performSleepAction,
   tickNeeds
 } from '../needs';
 import { evolvePersonality, generateRandomPersonality } from '../personality';
+import {
+  applyOfflineSurvival,
+  createInitialSurvivalState,
+  createMemorialEntry,
+  evaluateWelfareWarnings,
+  stepSurvivalLive
+} from '../survival';
 import { addMealCalories, classifyBodyCondition, stepWeightSimulation } from '../weight';
 
 describe('10 Breeds & Coat/Eye Genetics Compatibility', () => {
@@ -510,8 +529,8 @@ describe('Playful AI, Defensive Hissing, Rare Biting & Visible Hand Actions (Tes
   });
 });
 
-describe('Save Migration V1/V2 -> V3, Weight, Bond & Collision (Test 17)', () => {
-  it('TEST 17: migrates legacy V1 and V2 saves to V3 preserving cat identity, coins, and progress', () => {
+describe('Save Migration V1/V2/V3 -> V4, Weight, Bond & Collision (Test 17)', () => {
+  it('TEST 17: migrates legacy V1, V2, and V3 saves to V4 preserving cat identity, coins, and progress', () => {
     const legacyV1 = {
       version: 1,
       savedAt: 1_700_000_000_000,
@@ -536,7 +555,7 @@ describe('Save Migration V1/V2 -> V3, Weight, Bond & Collision (Test 17)', () =>
 
     const migratedV1 = validateAndMigrateSave(legacyV1, 1_700_000_000_000);
     expect(migratedV1).not.toBeNull();
-    expect(migratedV1?.version).toBe(3);
+    expect(migratedV1?.version).toBe(4);
     expect(migratedV1?.coins).toBe(420);
     expect(migratedV1?.cat.identity.name).toBe('มะลิ');
     expect(migratedV1?.cat.identity.breed).toBe('siamese');
@@ -544,15 +563,17 @@ describe('Save Migration V1/V2 -> V3, Weight, Bond & Collision (Test 17)', () =>
     expect(migratedV1?.cat.bondLevel).toBe(12);
     expect(migratedV1?.playerEnergy.current).toBe(20);
     expect(migratedV1?.equipment.autoFeeder.storedServings).toBe(0);
+    expect(migratedV1?.humanAppearance).toBeDefined();
+    expect(migratedV1?.survival.isAlive).toBe(true);
 
-    const legacyV2 = {
+    const legacyV3 = {
       ...migratedV1,
-      version: 2,
+      version: 3,
       coins: 777
     };
-    const migratedV2 = validateAndMigrateSave(legacyV2, 1_700_000_000_000);
-    expect(migratedV2?.version).toBe(3);
-    expect(migratedV2?.coins).toBe(777);
+    const migratedV3 = validateAndMigrateSave(legacyV3, 1_700_000_000_000);
+    expect(migratedV3?.version).toBe(4);
+    expect(migratedV3?.coins).toBe(777);
 
     expect(validateAndMigrateSave(null)).toBeNull();
     expect(validateAndMigrateSave({ version: 99 })).toBeNull();
@@ -604,5 +625,210 @@ describe('Save Migration V1/V2 -> V3, Weight, Bond & Collision (Test 17)', () =>
     const fed = performFeedAction(save.cat, save.room, 'adult_dry');
     expect(fed.success).toBe(true);
     expect(fed.coinsEarned).toBe(0);
+  });
+});
+
+describe('Major Update: 6-Stage Growth, 5-Tier Weight, Survival, Quests, Auto-Close Menus & Human Avatar', () => {
+  it('supports all 6 life stages including Senior with non-uniform anatomical proportions', () => {
+    expect(getLifeStageForAge(0)).toBe('newborn');
+    expect(getLifeStageForAge(20)).toBe('baby_kitten');
+    expect(getLifeStageForAge(90)).toBe('young_kitten');
+    expect(getLifeStageForAge(240)).toBe('adolescent');
+    expect(getLifeStageForAge(500)).toBe('adult');
+    expect(getLifeStageForAge(2600)).toBe('senior');
+
+    const kitten = computeGrowthMetrics('siamese', 30);
+    const adult = computeGrowthMetrics('siamese', 500);
+    const senior = computeGrowthMetrics('siamese', 3000);
+
+    // Not uniform scale: head ratio shrinks, legs elongate, body length grows, senior slows gently
+    expect(kitten.headRatio).toBeGreaterThan(adult.headRatio);
+    expect(kitten.legRatio).toBeLessThan(adult.legRatio);
+    expect(kitten.bodyLengthRatio).toBeLessThan(adult.bodyLengthRatio);
+    expect(kitten.pawScale).toBeGreaterThan(adult.pawScale);
+    expect(senior.activityLevel).toBeLessThan(adult.activityLevel);
+    expect(senior.animSpeedFactor).toBeLessThan(adult.animSpeedFactor);
+    expect(senior.coatSilvering).toBeGreaterThan(0);
+  });
+
+  it('classifies all 5 dynamic weight body conditions including Obese & Underweight', () => {
+    expect(classifyBodyCondition(-0.45)).toBe('underweight');
+    expect(classifyBodyCondition(-0.2)).toBe('lean');
+    expect(classifyBodyCondition(0.0)).toBe('healthy');
+    expect(classifyBodyCondition(0.35)).toBe('overweight');
+    expect(classifyBodyCondition(0.65)).toBe('obese');
+  });
+
+  it('shows welfare warnings before death, respects offline grace period, and disables death in Casual Mode', () => {
+    const t0 = 1_700_000_000_000;
+    const save = createInitialSaveData('persian', { hasAdoptedInitialCat: true, hasCreatedHuman: true, nowUtc: t0 });
+    save.cat.ageDays = 400;
+    save.cat.lifeStage = 'adult';
+    save.room.foodBowlLevel = 0;
+    save.room.waterBowlLevel = 0;
+
+    // 1. Closing the app for 8 hours (within 24h offline grace period) NEVER kills the cat
+    const shortOffline = applyOfflineSurvival(
+      save.cat,
+      createInitialSurvivalState(t0, 24),
+      save.room,
+      8 * 3600,
+      'standard',
+      24,
+      t0 + 8 * 3600 * 1000
+    );
+    expect(shortOffline.survival.isAlive).toBe(true);
+    expect(shortOffline.justDied).toBe(false);
+
+    // 2. Low thirst/hunger generates clear human-readable welfare warnings (no numeric hunger bar)
+    const thirstyCat = { ...save.cat, needs: { ...save.cat.needs, thirst: 20, hunger: 18 } };
+    const warnings = evaluateWelfareWarnings(thirstyCat, save.survival, save.room);
+    expect(warnings.some((w) => w.type === 'water')).toBe(true);
+    expect(warnings.some((w) => w.type === 'food')).toBe(true);
+
+    // 3. Casual Mode strictly disables death even after extreme neglect
+    const casualExtreme = applyOfflineSurvival(
+      thirstyCat,
+      createInitialSurvivalState(t0, 12),
+      save.room,
+      200 * 3600,
+      'casual',
+      12,
+      t0 + 200 * 3600 * 1000
+    );
+    expect(casualExtreme.survival.isAlive).toBe(true);
+    expect(casualExtreme.justDied).toBe(false);
+    expect(casualExtreme.cat.needs.health).toBeGreaterThanOrEqual(30);
+
+    // 4. Standard Mode: sustained critical neglect eventually causes death & creates memorial record
+    const criticalCat = { ...thirstyCat, needs: { ...thirstyCat.needs, health: 4, thirst: 0, hunger: 0 } };
+    const criticalSurv = {
+      ...createInitialSurvivalState(t0, 12),
+      dehydrationHours: 30,
+      malnutritionHours: 30,
+      criticalHealthHours: 35.9
+    };
+    const fatalStep = stepSurvivalLive(criticalCat, criticalSurv, save.room, 7200, 'standard', t0 + 7200_000);
+    expect(fatalStep.justDied).toBe(true);
+    expect(fatalStep.survival.isAlive).toBe(false);
+
+    const memorial = createMemorialEntry(fatalStep.cat, fatalStep.survival, [], t0 + 7200_000);
+    expect(memorial.catName).toBe(save.cat.identity.name);
+    expect(memorial.daysTogether).toBeGreaterThanOrEqual(1);
+  });
+
+  it('auto-closes all menus on cat actions, never auto-reopens them, and navigates human without teleporting', () => {
+    const save = createInitialSaveData('ragdoll', { hasAdoptedInitialCat: true, hasCreatedHuman: true });
+    save.cat.ageDays = 180;
+    save.cat.lifeStage = 'young_kitten';
+    save.cat.behavior = 'sit';
+    save.cat.needs.stress = 5;
+    save.cat.traits.aggression = 10;
+    save.cat.traits.fearfulness = 10;
+    save.foodInventory.kitten_wet = 3;
+
+    useGameStore.setState({
+      ...save,
+      hydrated: true,
+      drawerOpen: true,
+      showEquipmentModal: true,
+      activeCareAction: null,
+      actionCooldowns: {}
+    });
+
+    // Selecting pet auto-closes drawer and overlapping modals immediately!
+    const started = useGameStore.getState().petCat();
+    expect(started).toBe(true);
+    expect(useGameStore.getState().drawerOpen).toBe(false);
+    expect(useGameStore.getState().showEquipmentModal).toBe(false);
+    expect(useGameStore.getState().activeCareAction?.phase).toBe('approaching');
+
+    // Finish action -> menus stay closed (player reopens manually)
+    useGameStore.getState().commitActiveCareAction();
+    useGameStore.getState().finishActiveCareAction();
+    expect(useGameStore.getState().drawerOpen).toBe(false);
+    expect(useGameStore.getState().human.animState).toBe('idle');
+
+    // Human navigation moves smoothly step-by-step around furniture without teleporting
+    let human = createInitialHumanState();
+    const spots = computeActionInteractionSpots('pet', save.cat, save.placedFurniture, {
+      x: human.position.x,
+      z: human.position.z
+    });
+    let arrived = false;
+    for (let i = 0; i < 160; i++) {
+      const prev = { ...human.position };
+      const res = stepHumanNavigation(human, spots.targetPoint, spots.alignTarget, save.placedFurniture, 0.05);
+      human = res.human;
+      expect(Math.hypot(human.position.x - prev.x, human.position.z - prev.z)).toBeLessThan(0.18);
+      if (res.arrived && res.aligned) {
+        arrived = true;
+        break;
+      }
+    }
+    expect(arrived).toBe(true);
+
+    // Pick Up Cat action works with 0 Coins generated
+    const pickupRes = performPickupAction(save.cat, save.room);
+    expect(pickupRes.success).toBe(true);
+    expect(pickupRes.coinsEarned).toBe(0);
+  });
+
+  it('shows red quest notification dot count when completed, claims once, and prevents duplicate rewards', () => {
+    const t0 = 1_700_000_000_000;
+    const save = createInitialSaveData('siamese', { hasAdoptedInitialCat: true, hasCreatedHuman: true, nowUtc: t0 });
+    save.dailyTasks = save.dailyTasks.map((t) =>
+      t.id === 'daily_feed' ? { ...t, progress: t.target, claimed: false } : t
+    );
+
+    useGameStore.setState({
+      ...save,
+      hydrated: true,
+      coins: 100,
+      claimedRewardIds: []
+    });
+
+    expect(countClaimableQuests(useGameStore.getState().dailyTasks)).toBe(1);
+
+    const firstClaim = useGameStore.getState().claimDailyTask('daily_feed', t0);
+    expect(firstClaim).toBe(true);
+    expect(useGameStore.getState().coins).toBeGreaterThan(100);
+    expect(countClaimableQuests(useGameStore.getState().dailyTasks)).toBe(0);
+
+    // Repeated tap / refresh duplicate claim attempt yields false and zero extra coins
+    const coinsAfter = useGameStore.getState().coins;
+    const dupClaim = useGameStore.getState().claimDailyTask('daily_feed', t0);
+    expect(dupClaim).toBe(false);
+    expect(useGameStore.getState().coins).toBe(coinsAfter);
+  });
+
+  it('supports full human character customization across genders, hairstyles, face & cross-gender outfits', () => {
+    expect(HUMAN_HAIR_STYLES.length).toBeGreaterThanOrEqual(9);
+    expect(HUMAN_TOP_STYLES.length).toBeGreaterThanOrEqual(5);
+    expect(HUMAN_BOTTOM_STYLES.length).toBeGreaterThanOrEqual(5);
+
+    const maleCustom = {
+      ...createDefaultHumanAppearance('male'),
+      name: 'Alex',
+      hairStyle: 'ponytail' as const,
+      hairColor: 'red' as const,
+      eyeShape: 'almond' as const,
+      eyeColor: 'green' as const,
+      mouthShape: 'smile' as const,
+      topStyle: 'hoodie' as const,
+      bottomStyle: 'skirt' as const, // Cross-gender compatible clothing!
+      footwearStyle: 'sneakers' as const
+    };
+
+    const save = createInitialSaveData('bengal', {
+      hasAdoptedInitialCat: true,
+      hasCreatedHuman: true,
+      customHumanAppearance: maleCustom
+    });
+    useGameStore.setState({ ...save, hydrated: true });
+    useGameStore.getState().saveHumanAppearance(maleCustom);
+    expect(useGameStore.getState().humanAppearance.name).toBe('Alex');
+    expect(useGameStore.getState().humanAppearance.bottomStyle).toBe('skirt');
+    expect(useGameStore.getState().hasCreatedHuman).toBe(true);
   });
 });

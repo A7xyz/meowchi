@@ -24,12 +24,13 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /**
- * Five realistic life stages by in-game age in days:
- * Stage 1: Newborn       0 - 14 days   (0-2 weeks)
- * Stage 2: Baby Kitten  15 - 56 days   (3-8 weeks)
- * Stage 3: Young Kitten 57 - 180 days  (2-6 months)
- * Stage 4: Adolescent  181 - 365 days  (6-12 months)
- * Stage 5: Adult       366+ days       (12+ months)
+ * Six realistic feline life stages by in-game age in days:
+ * Stage 1: Newborn       0 - 14 days      (0-2 weeks)
+ * Stage 2: Baby Kitten  15 - 56 days      (3-8 weeks)
+ * Stage 3: Young Kitten 57 - 180 days     (2-6 months)
+ * Stage 4: Adolescent  181 - 365 days     (6-12 months)
+ * Stage 5: Adult       366 - 2555 days    (1-7 years)
+ * Stage 6: Senior      2556+ days         (7+ years)
  */
 export function getLifeStageForAge(ageDays: number): LifeStage {
   const d = Math.max(0, ageDays);
@@ -37,7 +38,8 @@ export function getLifeStageForAge(ageDays: number): LifeStage {
   if (d < 57) return 'baby_kitten';
   if (d < 181) return 'young_kitten';
   if (d < 366) return 'adolescent';
-  return 'adult';
+  if (d < 2556) return 'adult';
+  return 'senior';
 }
 
 export function computeGrowthMetrics(
@@ -55,31 +57,65 @@ export function computeGrowthMetrics(
   else if (stage === 'baby_kitten') stageProgress = clamp((d - 15) / 42, 0, 1);
   else if (stage === 'young_kitten') stageProgress = clamp((d - 57) / 124, 0, 1);
   else if (stage === 'adolescent') stageProgress = clamp((d - 181) / 185, 0, 1);
-  else stageProgress = 1;
+  else if (stage === 'adult') stageProgress = clamp((d - 366) / (2556 - 366), 0, 1);
+  else stageProgress = clamp((d - 2556) / 1825, 0, 1);
 
   const growthCurve =
-    0.58 * smoothstep(0, 180, d) +
+    0.56 * smoothstep(0, 180, d) +
     0.34 * smoothstep(90, 365, d) +
-    0.08 * smoothstep(300, 450, d);
+    0.1 * smoothstep(300, 480, d);
   const overallGrowth = clamp(growthCurve, 0, 1);
+  const seniorProgress = smoothstep(2300, 3200, d);
 
-  // Naturally adorable rounded kitten proportions morphing smoothly to breed adult frame
-  const bodyScale = lerp(0.36, morph.adultScale, overallGrowth);
-  const headRatio = lerp(1.34, 1.0, smoothstep(0, 240, d));
-  const legRatio = lerp(0.64, 1.0, smoothstep(10, 220, d));
-  const tailRatio = lerp(0.56, 1.0, smoothstep(7, 200, d));
-  const earRatio = lerp(0.68, 1.0, smoothstep(0, 140, d));
+  // Non-uniform realistic anatomical proportions across all 6 life stages
+  const bodyScale = lerp(0.35, morph.adultScale, overallGrowth) * lerp(1.0, 0.98, seniorProgress);
+  const heightRatio = lerp(0.68, 1.0, smoothstep(8, 280, d)) * lerp(1.0, 0.95, seniorProgress);
 
-  // Coat transitions gradually from soft newborn down to mature adult coat & ruff
-  const coatMaturity = smoothstep(14, 320, d);
+  // Kittens have shorter compact torsos; adolescents stretch slightly lanky before filling out in adulthood
+  const adolescentLankiness = smoothstep(140, 250, d) * (1 - smoothstep(270, 420, d));
+  const bodyLengthRatio =
+    lerp(0.76, 1.0, smoothstep(5, 240, d)) + adolescentLankiness * 0.07 - seniorProgress * 0.02;
+
+  // Large adorable kitten head-to-body ratio morphing gradually to sleek adult proportions
+  const headRatio = lerp(1.36, 1.0, smoothstep(0, 260, d));
+  const legRatio =
+    lerp(0.62, 1.0, smoothstep(10, 230, d)) + adolescentLankiness * 0.06 - seniorProgress * 0.04;
+  // Slightly oversized chunky paws on young kittens that become sleeker in adulthood
+  const pawScale = lerp(1.24, 1.0, smoothstep(15, 270, d));
+  const tailRatio = lerp(0.54, 1.0, smoothstep(7, 210, d));
+  const earRatio = lerp(0.66, 1.0, smoothstep(0, 150, d));
+
+  // Coat transitions from soft newborn down to mature adult coat & gentle senior silvering
+  const coatMaturity = smoothstep(14, 340, d);
+  const coatSilvering = smoothstep(2200, 3650, d);
 
   // Realistic newborn eye opening: closed days 0-7, gradually opening days 8-14
   const eyeOpenness = smoothstep(7.5, 14.5, d);
 
-  // Breed-calibrated ideal weight curve
+  // Natural life-stage activity level and animation speed
+  let activityLevel = 0.28;
+  let animSpeedFactor = 0.72;
+  if (stage === 'baby_kitten') {
+    activityLevel = lerp(0.62, 1.05, stageProgress);
+    animSpeedFactor = lerp(0.86, 1.04, stageProgress);
+  } else if (stage === 'young_kitten') {
+    activityLevel = lerp(1.15, 1.35, Math.sin(stageProgress * Math.PI));
+    animSpeedFactor = 1.15;
+  } else if (stage === 'adolescent') {
+    activityLevel = lerp(1.24, 1.05, stageProgress);
+    animSpeedFactor = 1.08;
+  } else if (stage === 'adult') {
+    activityLevel = lerp(1.0, 0.82, stageProgress);
+    animSpeedFactor = lerp(1.0, 0.92, stageProgress);
+  } else if (stage === 'senior') {
+    activityLevel = lerp(0.72, 0.48, stageProgress);
+    animSpeedFactor = lerp(0.86, 0.72, stageProgress);
+  }
+
+  // Breed-calibrated ideal weight curve (slightly leaner in very old senior years)
   const adultIdealMid = (morph.adultWeightMinKg + morph.adultWeightMaxKg) * 0.5;
   const idealWeightKg = Number(
-    lerp(0.11, adultIdealMid, overallGrowth).toFixed(2)
+    (lerp(0.11, adultIdealMid, overallGrowth) * lerp(1.0, 0.94, seniorProgress)).toFixed(2)
   );
 
   const canWalk = d >= 15;
@@ -93,9 +129,11 @@ export function computeGrowthMetrics(
   if (d >= 15 && d < 57) {
     maxMoveSpeed = lerp(0.28, 0.58, (d - 15) / 42);
   } else if (d >= 57 && d < 181) {
-    maxMoveSpeed = lerp(0.65, 1.25, (d - 57) / 124);
-  } else if (d >= 181) {
+    maxMoveSpeed = lerp(0.65, 1.28, (d - 57) / 124);
+  } else if (d >= 181 && d < 2556) {
     maxMoveSpeed = lerp(1.18, 1.38, smoothstep(181, 366, d));
+  } else if (d >= 2556) {
+    maxMoveSpeed = lerp(1.08, 0.78, seniorProgress);
   }
 
   return {
@@ -103,12 +141,18 @@ export function computeGrowthMetrics(
     stageProgress,
     overallGrowth,
     bodyScale,
+    heightRatio,
+    bodyLengthRatio,
     headRatio,
     legRatio,
+    pawScale,
     tailRatio,
     earRatio,
     eyeOpenness,
     coatMaturity,
+    coatSilvering,
+    activityLevel,
+    animSpeedFactor,
     idealWeightKg,
     canWalk,
     canRun,

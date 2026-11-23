@@ -3,8 +3,11 @@ import {
   Check,
   CheckCircle2,
   Cpu,
+  Heart,
   Lock,
   Save,
+  Shirt,
+  Sparkles,
   Trash2,
   Volume2,
   VolumeX,
@@ -566,6 +569,46 @@ export function SettingsModal() {
 
           <div className="row-between">
             <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>
+              {t.survivalMode}
+            </span>
+            <div className="chip-group">
+              <button
+                type="button"
+                className={`chip-btn ${settings.survivalMode === 'standard' ? 'selected' : ''}`}
+                onClick={() => state.updateSettings({ survivalMode: 'standard' })}
+              >
+                {t.standardMode}
+              </button>
+              <button
+                type="button"
+                className={`chip-btn ${settings.survivalMode === 'casual' ? 'selected' : ''}`}
+                onClick={() => state.updateSettings({ survivalMode: 'casual' })}
+              >
+                {t.casualMode}
+              </button>
+            </div>
+          </div>
+
+          <div className="row-between">
+            <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>
+              {t.offlineGrace}
+            </span>
+            <div className="chip-group">
+              {[12, 24, 48].map((hrs) => (
+                <button
+                  key={hrs}
+                  type="button"
+                  className={`chip-btn ${settings.offlineGraceHours === hrs ? 'selected' : ''}`}
+                  onClick={() => state.updateSettings({ offlineGraceHours: hrs })}
+                >
+                  {hrs}h
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="row-between">
+            <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>
               {t.reduceBiteVisuals}
             </span>
             <button
@@ -579,6 +622,16 @@ export function SettingsModal() {
             </button>
           </div>
         </div>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => state.openHumanCreator('wardrobe')}
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+        >
+          <Shirt size={14} />
+          {t.wardrobe} ({state.humanAppearance.name})
+        </button>
 
         <div className="section-box" style={{ fontSize: 11, color: '#6b5546' }}>
           🌱 {t.naturalGrowthNote}
@@ -625,6 +678,7 @@ export function AlbumModal() {
   const state = useGameStore();
   const lang = state.settings.language;
   const t = UI_TEXT[lang];
+  const [albumTab, setAlbumTab] = useState<'photos' | 'memories'>('photos');
 
   if (!state.showAlbumModal) return null;
 
@@ -644,45 +698,202 @@ export function AlbumModal() {
           </button>
         </div>
 
-        {state.photos.length === 0 ? (
+        <div className="chip-group">
+          <button
+            type="button"
+            className={`chip-btn ${albumTab === 'photos' ? 'selected' : ''}`}
+            onClick={() => setAlbumTab('photos')}
+          >
+            📷 {t.photoAlbum} ({state.photos.length})
+          </button>
+          <button
+            type="button"
+            className={`chip-btn ${albumTab === 'memories' ? 'selected' : ''}`}
+            onClick={() => setAlbumTab('memories')}
+          >
+            🌿 {t.memories} ({state.memorials.length})
+          </button>
+        </div>
+
+        {albumTab === 'photos' ? (
+          state.photos.length === 0 ? (
+            <p style={{ fontSize: 12, color: '#756355', textAlign: 'center', margin: '18px 0' }}>
+              {t.noPhotos}
+            </p>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {state.photos.map((photo) => (
+                <div key={photo.id} className="section-box" style={{ padding: 6 }}>
+                  <img
+                    src={photo.dataUrl}
+                    alt={photo.catName}
+                    style={{
+                      width: '100%',
+                      aspectRatio: '9 / 12',
+                      objectFit: 'cover',
+                      borderRadius: 10
+                    }}
+                  />
+                  <div className="row-between" style={{ fontSize: 10.5 }}>
+                    <div>
+                      <strong>{photo.catName}</strong> • {formatAge(photo.ageDays, lang)}
+                      <div style={{ color: '#756355' }}>
+                        {STAGE_LABELS[photo.lifeStage][lang]} •{' '}
+                        {BEHAVIOR_LABELS[photo.behavior][lang]}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="drawer-close"
+                      onClick={() => state.deletePhoto(photo.id)}
+                      aria-label="Delete photo"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : state.memorials.length === 0 ? (
           <p style={{ fontSize: 12, color: '#756355', textAlign: 'center', margin: '18px 0' }}>
-            {t.noPhotos}
+            {lang === 'th'
+              ? 'ยังไม่มีบันทึกความทรงจำในอัลบั้มนี้ — ขอให้น้องแมวของคุณแข็งแรงและมีความสุขทุกวัน'
+              : 'No memorial entries yet — wishing your cat a long, happy, healthy life.'}
           </p>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {state.photos.map((photo) => (
-              <div key={photo.id} className="section-box" style={{ padding: 6 }}>
-                <img
-                  src={photo.dataUrl}
-                  alt={photo.catName}
-                  style={{
-                    width: '100%',
-                    aspectRatio: '9 / 12',
-                    objectFit: 'cover',
-                    borderRadius: 10
-                  }}
-                />
-                <div className="row-between" style={{ fontSize: 10.5 }}>
-                  <div>
-                    <strong>{photo.catName}</strong> • {formatAge(photo.ageDays, lang)}
-                    <div style={{ color: '#756355' }}>
-                      {STAGE_LABELS[photo.lifeStage][lang]} •{' '}
-                      {BEHAVIOR_LABELS[photo.behavior][lang]}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {state.memorials.map((m) => {
+              const bDef = getBreedDefinition(m.breed);
+              return (
+                <div key={m.id} className="section-box" style={{ gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {m.photoDataUrl ? (
+                      <img
+                        src={m.photoDataUrl}
+                        alt={m.catName}
+                        style={{
+                          width: 54,
+                          height: 54,
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          border: '2px solid rgba(200,122,86,0.35)'
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 54,
+                          height: 54,
+                          borderRadius: '50%',
+                          background: '#f2e6d8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Heart size={20} color="#c87a56" />
+                      </div>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{m.catName}</div>
+                      <div style={{ fontSize: 11, color: '#756355' }}>
+                        {lang === 'th' ? bDef.nameTh : bDef.nameEn} • {formatAge(m.ageDays, lang)} •{' '}
+                        {lang === 'th'
+                          ? `อยู่ด้วยกัน ${m.daysTogether} วัน`
+                          : `${m.daysTogether} day(s) together`}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: '#8b725c', marginTop: 2 }}>
+                        {lang === 'th' ? m.epitaphTh : m.epitaphEn}
+                      </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="drawer-close"
-                    onClick={() => state.deletePhoto(photo.id)}
-                    aria-label="Delete photo"
-                  >
-                    <Trash2 size={12} />
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Respectful Memorial Screen shown if a cat passes away in Standard Survival Mode.
+ * Preserves memories in the Album and invites the player to adopt a new kitten.
+ */
+export function MemorialModal() {
+  const state = useGameStore();
+  const lang = state.settings.language;
+  const t = UI_TEXT[lang];
+
+  if (!state.showMemorialModal && state.survival.isAlive) return null;
+
+  const latestMemorial = state.memorials[0];
+  const catName = latestMemorial?.catName ?? state.cat.identity.name;
+  const ageDays = latestMemorial?.ageDays ?? state.cat.ageDays;
+  const daysTogether = latestMemorial?.daysTogether ?? 1;
+  const photoUrl = latestMemorial?.photoDataUrl ?? state.photos[0]?.dataUrl;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card memorial-card" onClick={(e) => e.stopPropagation()}>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: '50%',
+            background: '#f5e2d7',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Sparkles size={22} color="#c87a56" />
+        </div>
+
+        <h3 style={{ margin: 0, fontSize: 17 }}>
+          {lang === 'th' ? `ด้วยรักและอาลัยแด่ ${catName}` : `In Loving Memory of ${catName}`}
+        </h3>
+
+        {photoUrl && <img src={photoUrl} alt={catName} className="memorial-photo" />}
+
+        <div className="section-box" style={{ width: '100%', textAlign: 'center', gap: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {catName} • {formatAge(ageDays, lang)}
+          </div>
+          <div style={{ fontSize: 11.5, color: '#756355' }}>
+            {lang === 'th'
+              ? `ช่วงเวลาแสนอบอุ่นที่อยู่ด้วยกัน: ${daysTogether} วัน • สายสัมพันธ์ Lv.${state.cat.bondLevel}`
+              : `Time spent together: ${daysTogether} day(s) • Bond Lv.${state.cat.bondLevel}`}
+          </div>
+          <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#6b5546', lineHeight: 1.45 }}>
+            {lang === 'th'
+              ? 'ความทรงจำและภาพถ่ายของน้องแมวถูกเก็บรักษาไว้อย่างดีในอัลบั้มความทรงจำตลอดไป'
+              : 'Every memory and photo has been lovingly preserved in your Memories album forever.'}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ width: '100%', padding: '11px 16px', fontSize: 13.5 }}
+          onClick={() => {
+            state.setShowMemorialModal(false);
+            state.setShowAdoptFlow(true);
+          }}
+        >
+          {t.adoptNew}
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ width: '100%' }}
+          onClick={() => state.setShowAlbumModal(true)}
+        >
+          {t.memories} ({state.memorials.length})
+        </button>
       </div>
     </div>
   );
@@ -723,14 +934,14 @@ export function TasksModal() {
                   </div>
                 </div>
                 {task.claimed ? (
-                  <span className="badge sage">{t.claimed}</span>
+                  <span className="badge sage">✓ {t.claimed}</span>
                 ) : ready ? (
                   <button
                     type="button"
                     className="btn-primary"
                     onClick={() => state.claimDailyTask(task.id)}
                   >
-                    {t.claim}
+                    {t.claimReward}
                   </button>
                 ) : (
                   <span className="badge">

@@ -8,11 +8,13 @@ import {
   Feather,
   Fish,
   Grid2x2,
+  HandHeart,
   Heart,
   Image as ImageIcon,
   Moon,
   Paintbrush,
   ShieldCheck,
+  Shirt,
   Sparkles,
   Trash2,
   Truck,
@@ -147,7 +149,7 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
         </button>
       </div>
 
-      {/* TAB 1: CARE & HOME TOOLS (Zero Coins; visible 3D hand animations; disabled while running) */}
+      {/* TAB 1: CARE & HOME TOOLS (Zero Coins; Full 3D human character animations; auto-closes drawer) */}
       {activeTab === 'care' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="action-grid">
@@ -163,7 +165,23 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               </div>
               <span className="action-card-title">{t.petCat}</span>
               <span className="action-card-sub">
-                {lang === 'th' ? 'ยื่นมือลูบเบาๆ อย่ารบกวนตอนหลับ' : 'Stroke gently by hand (respect sleep)'}
+                {lang === 'th' ? 'เดินไปลูบหัวเบาๆ อย่ารบกวนตอนหลับ' : 'Walk over & stroke gently'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.pickupCat()}
+            >
+              <div className="action-card-top">
+                <HandHeart size={16} color="#c87a56" />
+                <span className="badge warm">+Bond</span>
+              </div>
+              <span className="action-card-title">{t.pickupCat}</span>
+              <span className="action-card-sub">
+                {lang === 'th' ? 'อุ้มประคองอย่างอ่อนโยนแล้ววางลง' : 'Gently scoop up & cuddle'}
               </span>
             </button>
 
@@ -179,7 +197,7 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               </div>
               <span className="action-card-title">{t.respectSpace}</span>
               <span className="action-card-sub">
-                {lang === 'th' ? 'ลดความเครียดเมื่อแมวขู่หรือกลัว' : 'Calms stress & defensive mood'}
+                {lang === 'th' ? 'ถอยห่างอย่างสงบเพื่อลดความเครียด' : 'Step back to calm stress'}
               </span>
             </button>
 
@@ -248,6 +266,15 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
             <button
               type="button"
               className="chip-btn"
+              onClick={() => state.openHumanCreator('wardrobe')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Shirt size={13} />
+              {t.wardrobe}
+            </button>
+            <button
+              type="button"
+              className="chip-btn"
               onClick={() => state.setShowEquipmentModal(true)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
             >
@@ -288,11 +315,21 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               type="button"
               className="chip-btn"
               onClick={() => state.setShowTasksModal(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, position: 'relative' }}
             >
               <ClipboardList size={13} />
               {t.dailyTasks}
-              {claimableCount > 0 ? ` (+${claimableCount})` : ''}
+              {claimableCount > 0 && (
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: '#e23b3b',
+                    display: 'inline-block'
+                  }}
+                />
+              )}
             </button>
             <button
               type="button"

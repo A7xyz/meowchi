@@ -6,7 +6,10 @@ export type LifeStage =
   | 'baby_kitten'
   | 'young_kitten'
   | 'adolescent'
-  | 'adult';
+  | 'adult'
+  | 'senior';
+
+export type SurvivalMode = 'standard' | 'casual';
 
 export type CatSex = 'female' | 'male';
 
@@ -73,7 +76,7 @@ export type CatEmotion =
   | 'sleepy'
   | 'curious';
 
-export type BodyCondition = 'underweight' | 'lean' | 'healthy' | 'overweight';
+export type BodyCondition = 'underweight' | 'lean' | 'healthy' | 'overweight' | 'obese';
 
 export type CatBehaviorState =
   | 'idle'
@@ -159,6 +162,8 @@ export type CareActionType =
   | 'feed'
   | 'brush'
   | 'water'
+  | 'pickup'
+  | 'play_toy'
   | 'clean_litter'
   | 'clean_room'
   | 'respect_space'
@@ -167,16 +172,160 @@ export type CareActionType =
   | 'clean_fountain'
   | 'empty_auto_litter';
 
+export type ActionPhase = 'approaching' | 'aligning' | 'performing' | 'finishing';
+
 export interface ActiveCareAction {
   id: string;
   type: CareActionType;
+  phase: ActionPhase;
   startedAtMs: number;
+  phaseStartedAtMs: number;
   durationMs: number;
   contactAtMs: number;
+  maxTotalMs: number;
   committed: boolean;
+  reservedFoodId?: FoodItemId;
   bitten?: boolean;
   foodId?: FoodItemId;
+  toyType?: ToyType;
   targetInstanceId?: string;
+  targetPoint: Vec2;
+  alignTarget: Vec2;
+}
+
+export type HumanGender = 'female' | 'male';
+
+export type HumanSkinToneId =
+  | 'porcelain'
+  | 'fair'
+  | 'warm_beige'
+  | 'olive'
+  | 'tan'
+  | 'brown'
+  | 'deep';
+
+export type HumanHairStyle =
+  | 'short'
+  | 'medium'
+  | 'long'
+  | 'bob'
+  | 'ponytail'
+  | 'curly'
+  | 'wavy'
+  | 'buzz'
+  | 'side_part'
+  | 'bun';
+
+export type HumanHairColorId =
+  | 'black'
+  | 'dark_brown'
+  | 'chestnut'
+  | 'light_brown'
+  | 'blonde'
+  | 'red'
+  | 'auburn'
+  | 'gray'
+  | 'white';
+
+export type HumanEyeShape = 'almond' | 'round' | 'hooded' | 'upturned' | 'wide';
+
+export type HumanEyeColorId = 'dark_brown' | 'brown' | 'hazel' | 'green' | 'blue' | 'gray';
+
+export type HumanMouthShape = 'natural' | 'smile' | 'full' | 'thin' | 'gentle';
+
+export type HumanTopStyle = 'tshirt' | 'long_sleeve' | 'hoodie' | 'casual_shirt' | 'sweater';
+
+export type HumanBottomStyle =
+  | 'jeans'
+  | 'shorts'
+  | 'casual_pants'
+  | 'long_pants'
+  | 'skirt'
+  | 'pleated_skirt';
+
+export type HumanFootwearStyle = 'sneakers' | 'sandals' | 'slippers' | 'casual_shoes';
+
+export interface HumanAppearance {
+  name: string;
+  gender: HumanGender;
+  skinTone: HumanSkinToneId;
+  hairStyle: HumanHairStyle;
+  hairColor: HumanHairColorId;
+  eyeShape: HumanEyeShape;
+  eyeColor: HumanEyeColorId;
+  eyeSize: number; // 0.85 .. 1.18
+  mouthShape: HumanMouthShape;
+  lipColor: string;
+  topStyle: HumanTopStyle;
+  topColor: string;
+  bottomStyle: HumanBottomStyle;
+  bottomColor: string;
+  footwearStyle: HumanFootwearStyle;
+  footwearColor: string;
+}
+
+export type HumanAnimState =
+  | 'idle'
+  | 'walk'
+  | 'turn'
+  | 'kneel_pet'
+  | 'pour_food'
+  | 'bottle_feed'
+  | 'brush'
+  | 'pour_water'
+  | 'play_toy'
+  | 'pickup_cat'
+  | 'carry_cat'
+  | 'putdown_cat'
+  | 'clean_litter'
+  | 'clean_room'
+  | 'step_back'
+  | 'tuck_sleep'
+  | 'flinch';
+
+export interface HumanRuntimeState {
+  position: Vec3;
+  rotationY: number;
+  velocity: Vec2;
+  targetPosition: Vec2 | null;
+  facingTarget: Vec2 | null;
+  animState: HumanAnimState;
+  carryingCat: boolean;
+  navStuckTimer: number;
+}
+
+export interface CatWelfareWarning {
+  id: string;
+  severity: 'mild' | 'escalating' | 'critical';
+  type: 'water' | 'food' | 'attention' | 'health';
+  messageTh: string;
+  messageEn: string;
+}
+
+export interface CatSurvivalState {
+  isAlive: boolean;
+  dehydrationHours: number;
+  malnutritionHours: number;
+  criticalHealthHours: number;
+  lastCareAtUtc: number;
+  offlineGraceHours: number;
+  warnings: CatWelfareWarning[];
+  causeOfDeath?: 'dehydration' | 'malnutrition' | 'neglect';
+  passedAtUtc?: number;
+}
+
+export interface CatMemorialEntry {
+  id: string;
+  catName: string;
+  breed: CatBreed;
+  ageDays: number;
+  adoptedAt: number;
+  passedAt: number;
+  daysTogether: number;
+  photoDataUrl?: string;
+  bondLevel: number;
+  epitaphTh: string;
+  epitaphEn: string;
 }
 
 export interface Vec2 {
@@ -217,12 +366,18 @@ export interface CatGrowthMetrics {
   stageProgress: number;
   overallGrowth: number;
   bodyScale: number;
+  heightRatio: number;
+  bodyLengthRatio: number;
   headRatio: number;
   legRatio: number;
+  pawScale: number;
   tailRatio: number;
   earRatio: number;
   eyeOpenness: number;
   coatMaturity: number;       // 0 (soft kitten down) -> 1 (full adult coat)
+  coatSilvering: number;      // 0 -> 1 gentle senior muzzle/coat frosting
+  activityLevel: number;      // 0.3 .. 1.35 life-stage activity & play drive
+  animSpeedFactor: number;    // 0.72 .. 1.18 natural movement & animation tempo
   idealWeightKg: number;
   canWalk: boolean;
   canRun: boolean;
@@ -459,14 +614,21 @@ export interface GameSettings {
   soundEnabled: boolean;
   followCat: boolean;
   reduceBiteVisuals: boolean; // When true, replaces subtle blood-like bite edge with clean red warning flash
+  survivalMode: SurvivalMode; // 'standard' includes balanced survival; 'casual' disables death
+  offlineGraceHours: number;  // Configurable offline grace hours before survival decay starts
 }
 
-export interface SaveDataV3 {
-  version: 3;
+export interface SaveDataV4 {
+  version: 4;
   savedAt: number;
   lastGrowthSyncAtUtc: number;
+  hasCreatedHuman: boolean;
   hasAdoptedInitialCat: boolean;
+  humanAppearance: HumanAppearance;
+  human: HumanRuntimeState;
   cat: CatRuntimeState;
+  survival: CatSurvivalState;
+  memorials: CatMemorialEntry[];
   room: RoomStatus;
   equipment: EquipmentStateMap;
   coins: number;
@@ -497,5 +659,6 @@ export interface SaveDataV3 {
   };
 }
 
-/** @deprecated Kept as type alias for backward compatibility with older imports */
-export type SaveDataV2 = SaveDataV3;
+/** Backward-compatible type aliases */
+export type SaveDataV3 = SaveDataV4;
+export type SaveDataV2 = SaveDataV4;

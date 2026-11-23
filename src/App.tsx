@@ -4,6 +4,7 @@ import { ActionDrawer } from './components/ActionDrawer';
 import { AdoptionFlow } from './components/AdoptionFlow';
 import { BottomNav } from './components/BottomNav';
 import { DecorateBar } from './components/DecorateBar';
+import { HumanCreator } from './components/HumanCreator';
 import { CatToyChallengeGame } from './components/minigames/CatToyChallengeGame';
 import { CleanRoomGame } from './components/minigames/CleanRoomGame';
 import { DeliveryGame } from './components/minigames/DeliveryGame';
@@ -13,6 +14,7 @@ import {
   AlbumModal,
   CatProfileModal,
   EquipmentModal,
+  MemorialModal,
   SettingsModal,
   TasksModal
 } from './components/Modals';
@@ -31,6 +33,8 @@ export function App() {
   const savePhoto = useGameStore((s) => s.savePhoto);
   const activeToy = useGameStore((s) => s.activeToy);
   const activateToy = useGameStore((s) => s.activateToy);
+  const activeCareAction = useGameStore((s) => s.activeCareAction);
+  const cancelActiveCareAction = useGameStore((s) => s.cancelActiveCareAction);
   const activeMinigameSession = useGameStore((s) => s.activeMinigameSession);
   const decorateMode = useGameStore((s) => s.decorateMode);
   const toast = useGameStore((s) => s.toast);
@@ -74,6 +78,7 @@ export function App() {
   };
 
   const activeGameId = activeMinigameSession?.gameId ?? null;
+  const isInteracting = activeCareAction !== null;
 
   return (
     <div className="app-shell">
@@ -119,7 +124,7 @@ export function App() {
             </div>
           </div>
         ) : (
-          /* Clean Meowchi Gameplay HUD (NO hunger/fullness bars!) */
+          /* Clean Meowchi Gameplay HUD (NO hunger/fullness bars; minimal unobstructed view during interactions!) */
           <div className="ui-layer">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <TopBar />
@@ -131,39 +136,65 @@ export function App() {
             </div>
 
             <div className="bottom-stack">
-              {activeToy && !decorateMode && (
-                <div className="hint-bar ui-interactive">
+              {isInteracting ? (
+                /* Minimal non-blocking indicator during full-body human-to-cat interaction */
+                <div className="interaction-minimal-bar ui-interactive">
                   <span>
-                    {activeToy === 'feather_wand'
-                      ? t.featherHint
-                      : activeToy === 'ball'
-                        ? t.ballHint
-                        : lang === 'th'
-                          ? 'หนูไขลานกำลังวิ่งทั่วห้อง!'
-                          : 'Wind-up mouse is darting around!'}
+                    {activeCareAction.phase === 'approaching' || activeCareAction.phase === 'aligning'
+                      ? lang === 'th'
+                        ? 'กำลังเดินเข้าไปหาน้องแมว...'
+                        : 'Walking over...'
+                      : lang === 'th'
+                        ? 'กำลังดูแลน้องแมว...'
+                        : 'Interacting...'}
                   </span>
-                  <button
-                    type="button"
-                    className="hint-stop-btn"
-                    onClick={() => activateToy(null)}
-                  >
-                    {t.stopToy}
-                  </button>
+                  {!activeCareAction.committed && (
+                    <button
+                      type="button"
+                      className="hint-stop-btn"
+                      onClick={() => cancelActiveCareAction()}
+                    >
+                      {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+                    </button>
+                  )}
                 </div>
-              )}
-
-              {!activeToy && !decorateMode && (
-                <div className="hint-bar" style={{ opacity: 0.82 }}>
-                  <span>{t.tapCatHint}</span>
-                </div>
-              )}
-
-              {decorateMode ? (
-                <DecorateBar />
               ) : (
                 <>
-                  <ActionDrawer onFocusCat={handleFocusCat} />
-                  <BottomNav />
+                  {activeToy && !decorateMode && (
+                    <div className="hint-bar ui-interactive">
+                      <span>
+                        {activeToy === 'feather_wand'
+                          ? t.featherHint
+                          : activeToy === 'ball'
+                            ? t.ballHint
+                            : lang === 'th'
+                              ? 'หนูไขลานกำลังวิ่งทั่วห้อง!'
+                              : 'Wind-up mouse is darting around!'}
+                      </span>
+                      <button
+                        type="button"
+                        className="hint-stop-btn"
+                        onClick={() => activateToy(null)}
+                      >
+                        {t.stopToy}
+                      </button>
+                    </div>
+                  )}
+
+                  {!activeToy && !decorateMode && (
+                    <div className="hint-bar" style={{ opacity: 0.82 }}>
+                      <span>{t.tapCatHint}</span>
+                    </div>
+                  )}
+
+                  {decorateMode ? (
+                    <DecorateBar />
+                  ) : (
+                    <>
+                      <ActionDrawer onFocusCat={handleFocusCat} />
+                      <BottomNav />
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -177,6 +208,9 @@ export function App() {
         {activeGameId === 'delivery' && <DeliveryGame />}
         {activeGameId === 'clean_room' && <CleanRoomGame />}
 
+        {/* 3D Human Character Creator & Wardrobe */}
+        <HumanCreator />
+
         {/* First-Run Breed Selection & 3D Kitten Customization */}
         <AdoptionFlow />
 
@@ -186,6 +220,7 @@ export function App() {
         <SettingsModal />
         <AlbumModal />
         <TasksModal />
+        <MemorialModal />
       </main>
     </div>
   );

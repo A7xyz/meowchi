@@ -56,37 +56,55 @@ import {
   getLifeStageForAge
 } from '../simulation/growth';
 import {
+  computeActionInteractionSpots,
+  createInitialHumanState,
+  stepHumanNavigation
+} from '../simulation/humanNav';
+import {
   applyOfflineElapsed,
   performBrushAction,
   performCleanLitterAction,
   performCleanRoomAction,
   performFeedAction,
   performPetAction,
+  performPickupAction,
   performRespectSpaceAction,
   performSleepAction,
   performWaterAction,
   tickNeeds
 } from '../simulation/needs';
 import { evolvePersonality, generateRandomPersonality } from '../simulation/personality';
+import {
+  applyOfflineSurvival,
+  createInitialSurvivalState,
+  createMemorialEntry,
+  evaluateWelfareWarnings,
+  recordSurvivalCare,
+  stepSurvivalLive
+} from '../simulation/survival';
 import { createInitialWeightState, stepWeightSimulation } from '../simulation/weight';
 import {
   AccessoryId,
   ActiveCareAction,
   ActiveTab,
+  CareActionType,
   CatBreed,
   CatIdentity,
   CatSex,
+  DailyTask,
   EyeColorId,
   FoodItemId,
   FurColorId,
   FurPattern,
   GameSettings,
+  HumanAnimState,
+  HumanAppearance,
   MinigameId,
   MinigameResultEntry,
   MinigameSession,
   PhotoEntry,
   PlacedFurniture,
-  SaveDataV3,
+  SaveDataV4,
   ToyType,
   Vec2
 } from '../types/game';
@@ -97,7 +115,11 @@ export interface ToastMessage {
   tone: 'warm' | 'info' | 'warn' | 'celebrate';
 }
 
-export interface GameStore extends SaveDataV3 {
+export function countClaimableQuests(dailyTasks: DailyTask[]): number {
+  return dailyTasks.filter((t) => !t.claimed && t.progress >= t.target).length;
+}
+
+export interface GameStore extends SaveDataV4 {
   hydrated: boolean;
   activeTab: ActiveTab;
   drawerOpen: boolean;
@@ -111,9 +133,12 @@ export interface GameStore extends SaveDataV3 {
   showSettings: boolean;
   showProfileModal: boolean;
   showAdoptFlow: boolean;
+  showHumanCreator: boolean;
+  humanCreatorMode: 'initial' | 'wardrobe';
   showAlbumModal: boolean;
   showTasksModal: boolean;
   showEquipmentModal: boolean;
+  showMemorialModal: boolean;
   toast: ToastMessage | null;
   lastSavedAt: number;
   particleCue: { type: 'heart' | 'zzz' | 'sparkle' | 'music'; seq: number };
@@ -136,19 +161,25 @@ export interface GameStore extends SaveDataV3 {
   // UI Navigation
   setActiveTab: (tab: ActiveTab) => void;
   setDrawerOpen: (open: boolean) => void;
+  closeAllMenus: () => void;
   setPhotoMode: (enabled: boolean) => void;
   setShowSettings: (open: boolean) => void;
   setShowProfileModal: (open: boolean) => void;
   setShowAdoptFlow: (open: boolean) => void;
+  openHumanCreator: (mode: 'initial' | 'wardrobe') => void;
+  closeHumanCreator: () => void;
+  saveHumanAppearance: (appearance: HumanAppearance) => void;
   setShowAlbumModal: (open: boolean) => void;
   setShowTasksModal: (open: boolean) => void;
   setShowEquipmentModal: (open: boolean) => void;
+  setShowMemorialModal: (open: boolean) => void;
   showToast: (text: string, tone?: ToastMessage['tone']) => void;
 
-  // Care Actions (synchronized with visible 3D human hand animation; ZERO Coins generated!)
+  // Centralized Human-to-Cat Care Action Queue (Auto-closes menus; ZERO Coins generated!)
   feedCat: (foodId: FoodItemId, immediate?: boolean) => boolean;
   giveWater: (immediate?: boolean) => boolean;
   petCat: (immediate?: boolean) => boolean;
+  pickupCat: (immediate?: boolean) => boolean;
   respectCatSpace: (immediate?: boolean) => boolean;
   brushCat: (immediate?: boolean) => boolean;
   tuckCatToSleep: (immediate?: boolean) => boolean;
@@ -156,6 +187,7 @@ export interface GameStore extends SaveDataV3 {
   cleanLivingArea: (immediate?: boolean) => boolean;
   commitActiveCareAction: () => void;
   finishActiveCareAction: () => void;
+  cancelActiveCareAction: () => void;
 
   // Advanced Automatic Equipment Controls
   refillWaterFountain: (immediate?: boolean) => boolean;
@@ -211,19 +243,24 @@ export interface GameStore extends SaveDataV3 {
 let toastCounter = 1;
 let actionCounter = 1;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let careCommitTimer: ReturnType<typeof setTimeout> | null = null;
-let careFinishTimer: ReturnType<typeof setTimeout> | null = null;
+let careSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 let lastToyRewardTime = 0;
 let lastPurchaseMs = 0;
 let lastMinigameStartMs = 0;
+let lastWarningToastMs = 0;
 
-function extractSavePayload(state: GameStore): SaveDataV3 {
+function extractSavePayload(state: GameStore): SaveDataV4 {
   return {
-    version: 3,
+    version: 4,
     savedAt: Date.now(),
     lastGrowthSyncAtUtc: state.lastGrowthSyncAtUtc,
+    hasCreatedHuman: state.hasCreatedHuman,
     hasAdoptedInitialCat: state.hasAdoptedInitialCat,
+    humanAppearance: state.humanAppearance,
+    human: state.human,
     cat: state.cat,
+    survival: state.survival,
+    memorials: state.memorials,
     room: state.room,
     equipment: state.equipment,
     coins: state.coins,
@@ -282,16 +319,26 @@ function addXpAndCheckLevel(
 }
 
 function incrementDailyTask(
-  tasks: SaveDataV3['dailyTasks'],
-  type: SaveDataV3['dailyTasks'][number]['type']
-): SaveDataV3['dailyTasks'] {
-  return tasks.map((t) =>
-    t.type === type && !t.claimed ? { ...t, progress: Math.min(t.target, t.progress + 1) } : t
-  );
+  tasks: DailyTask[],
+  type: DailyTask['type']
+): { tasks: DailyTask[]; newlyCompletedTitleTh?: string; newlyCompletedTitleEn?: string } {
+  let newlyCompletedTitleTh: string | undefined;
+  let newlyCompletedTitleEn: string | undefined;
+  const next = tasks.map((t) => {
+    if (t.type !== type || t.claimed) return t;
+    const wasDone = t.progress >= t.target;
+    const nextProgress = Math.min(t.target, t.progress + 1);
+    if (!wasDone && nextProgress >= t.target) {
+      newlyCompletedTitleTh = t.titleTh;
+      newlyCompletedTitleEn = t.titleEn;
+    }
+    return { ...t, progress: nextProgress };
+  });
+  return { tasks: next, newlyCompletedTitleTh, newlyCompletedTitleEn };
 }
 
-function evaluateAchievements(state: SaveDataV3): {
-  achievements: SaveDataV3['achievements'];
+function evaluateAchievements(state: SaveDataV4): {
+  achievements: SaveDataV4['achievements'];
   coins: number;
   claimedRewardIds: string[];
   newlyUnlockedTh: string[];
@@ -338,25 +385,70 @@ function canPurchaseNow(): boolean {
 }
 
 function clearCareTimers(): void {
-  if (careCommitTimer) {
-    clearTimeout(careCommitTimer);
-    careCommitTimer = null;
-  }
-  if (careFinishTimer) {
-    clearTimeout(careFinishTimer);
-    careFinishTimer = null;
+  if (careSafetyTimer) {
+    clearTimeout(careSafetyTimer);
+    careSafetyTimer = null;
   }
 }
 
-const initial = createInitialSaveData('siamese', { hasAdoptedInitialCat: false });
+function mapActionToHumanAnim(action: ActiveCareAction): HumanAnimState {
+  switch (action.type) {
+    case 'pet':
+      return action.bitten ? 'flinch' : 'kneel_pet';
+    case 'brush':
+      return action.bitten ? 'flinch' : 'brush';
+    case 'feed':
+      return action.foodId === 'kitten_milk' ? 'bottle_feed' : 'pour_food';
+    case 'water':
+    case 'refill_fountain':
+      return 'pour_water';
+    case 'pickup':
+      return 'pickup_cat';
+    case 'play_toy':
+      return 'play_toy';
+    case 'clean_litter':
+    case 'empty_auto_litter':
+      return 'clean_litter';
+    case 'clean_fountain':
+    case 'clean_room':
+      return 'clean_room';
+    case 'respect_space':
+      return 'step_back';
+    case 'sleep':
+      return 'tuck_sleep';
+  }
+}
+
+const CLOSED_MENU_PATCH = {
+  drawerOpen: false,
+  showEquipmentModal: false,
+  showProfileModal: false,
+  showSettings: false,
+  showTasksModal: false,
+  showAlbumModal: false
+} as const;
+
+const initial = createInitialSaveData('siamese', {
+  hasAdoptedInitialCat: false,
+  hasCreatedHuman: false
+});
 
 export const useGameStore = create<GameStore>((set, get) => {
+  /**
+   * Centralized Action Controller:
+   * 1. Validate action (cat alive, no concurrent action, cooldown check)
+   * 2. Close ALL menus & overlapping panels automatically (never reopen after)
+   * 3. Reserve required item (e.g. foodId)
+   * 4. Compute unobstructed target interaction spot around cat/furniture
+   * 5. Human physically walks around furniture -> aligns -> plays full-body animation -> commits -> returns to idle
+   */
   const beginCareAction = (
-    type: ActiveCareAction['type'],
+    type: CareActionType,
     options: {
       durationMs?: number;
       contactAtMs?: number;
       foodId?: FoodItemId;
+      toyType?: ToyType;
       targetInstanceId?: string;
       immediate?: boolean;
       cooldownKey?: string;
@@ -365,34 +457,68 @@ export const useGameStore = create<GameStore>((set, get) => {
     const state = get();
     const nowUtc = Date.now();
 
-    // Never allow overlapping care actions while an animation is in flight
+    if (!state.survival.isAlive) {
+      set({ showMemorialModal: true });
+      return false;
+    }
+
+    // Strictly one interaction at a time (prevents duplicate execution & overlapping animations)
     if (state.activeCareAction !== null) {
       return false;
     }
 
-    // Cooldown protection (cannot be bypassed by rapid clicking)
     const cooldownKey = options.cooldownKey ?? type;
     const cd = isActionOnCooldown(state.actionCooldowns, cooldownKey, nowUtc);
     if (cd.onCooldown && !options.immediate) {
       return false;
     }
 
-    const durationMs = options.durationMs ?? 1550;
-    const contactAtMs = options.contactAtMs ?? Math.round(durationMs * 0.48);
+    const durationMs = options.durationMs ?? 1750;
+    const contactAtMs = options.contactAtMs ?? Math.round(durationMs * 0.45);
+    const maxTotalMs = durationMs + 7000;
+
+    const spots = computeActionInteractionSpots(
+      type,
+      state.cat,
+      state.placedFurniture,
+      { x: state.human.position.x, z: state.human.position.z },
+      { foodId: options.foodId, targetInstanceId: options.targetInstanceId }
+    );
 
     const action: ActiveCareAction = {
       id: `care_${nowUtc}_${actionCounter++}`,
       type,
+      phase: options.immediate ? 'performing' : 'approaching',
       startedAtMs: nowUtc,
+      phaseStartedAtMs: nowUtc,
       durationMs,
       contactAtMs,
+      maxTotalMs,
       committed: false,
+      reservedFoodId: options.foodId,
       foodId: options.foodId,
-      targetInstanceId: options.targetInstanceId
+      toyType: options.toyType,
+      targetInstanceId: options.targetInstanceId,
+      targetPoint: spots.targetPoint,
+      alignTarget: spots.alignTarget
     };
 
     const nextCooldowns = setActionCooldown(state.actionCooldowns, cooldownKey, nowUtc);
-    set({ activeCareAction: action, actionCooldowns: nextCooldowns });
+
+    // Auto-close ALL menus and return immediately to full unobstructed gameplay view!
+    set({
+      ...CLOSED_MENU_PATCH,
+      decorateMode: false,
+      activeCareAction: action,
+      actionCooldowns: nextCooldowns,
+      human: {
+        ...state.human,
+        targetPosition: spots.targetPoint,
+        facingTarget: spots.alignTarget,
+        animState: options.immediate ? mapActionToHumanAnim(action) : 'walk',
+        navStuckTimer: 0
+      }
+    });
 
     if (options.immediate) {
       get().commitActiveCareAction();
@@ -400,18 +526,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       return true;
     }
 
-    // Safe fallback timers guarantee completion even if 3D engine is hidden/tabbed
+    // Anti-stuck safety fallback in case browser tab is backgrounded while walking
     clearCareTimers();
-    careCommitTimer = setTimeout(() => {
-      if (get().activeCareAction?.id === action.id) {
-        get().commitActiveCareAction();
-      }
-    }, contactAtMs);
-    careFinishTimer = setTimeout(() => {
-      if (get().activeCareAction?.id === action.id) {
+    careSafetyTimer = setTimeout(() => {
+      const cur = get().activeCareAction;
+      if (cur && cur.id === action.id) {
+        if (!cur.committed) get().commitActiveCareAction();
         get().finishActiveCareAction();
       }
-    }, durationMs);
+    }, maxTotalMs);
 
     return true;
   };
@@ -431,9 +554,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     showSettings: false,
     showProfileModal: false,
     showAdoptFlow: false,
+    showHumanCreator: false,
+    humanCreatorMode: 'initial',
     showAlbumModal: false,
     showTasksModal: false,
     showEquipmentModal: false,
+    showMemorialModal: false,
     toast: null,
     lastSavedAt: Date.now(),
     particleCue: { type: 'heart', seq: 0 },
@@ -452,12 +578,18 @@ export const useGameStore = create<GameStore>((set, get) => {
     syncRealTimeClocks: (nowUtc = Date.now()) => {
       const state = get();
       const energySync = reconcilePlayerEnergy(state.playerEnergy, nowUtc);
-      const ageSync = advanceAgeFromUtc(
-        state.cat.ageDays,
-        state.lastGrowthSyncAtUtc,
-        nowUtc,
-        ECONOMY_CONFIG.GAME_TIME_SCALE
-      );
+      const ageSync = state.survival.isAlive
+        ? advanceAgeFromUtc(
+            state.cat.ageDays,
+            state.lastGrowthSyncAtUtc,
+            nowUtc,
+            ECONOMY_CONFIG.GAME_TIME_SCALE
+          )
+        : {
+            ageDays: state.cat.ageDays,
+            lastGrowthSyncAtUtc: nowUtc,
+            deltaDays: 0
+          };
       const nextStage = getLifeStageForAge(ageSync.ageDays);
       const today = getUtcDayNumber(nowUtc);
       const needsDailyReset = state.lastDailyResetDay < today;
@@ -486,19 +618,27 @@ export const useGameStore = create<GameStore>((set, get) => {
       const nowUtc = Date.now();
       const loaded = await loadGameData(nowUtc);
       if (!loaded) {
-        set({ hydrated: true, showAdoptFlow: true, hasAdoptedInitialCat: false });
+        set({
+          hydrated: true,
+          showHumanCreator: true,
+          humanCreatorMode: 'initial',
+          hasCreatedHuman: false,
+          showAdoptFlow: false,
+          hasAdoptedInitialCat: false
+        });
         soundManager.setEnabled(get().settings.soundEnabled);
         return;
       }
 
-      // Compute exact non-duplicable real elapsed time since last save
       const elapsedSeconds = Math.max(0, (nowUtc - loaded.savedAt) / 1000);
-      const ageSync = advanceAgeFromUtc(
-        loaded.cat.ageDays,
-        loaded.lastGrowthSyncAtUtc,
-        nowUtc,
-        ECONOMY_CONFIG.GAME_TIME_SCALE
-      );
+      const ageSync = loaded.survival.isAlive
+        ? advanceAgeFromUtc(
+            loaded.cat.ageDays,
+            loaded.lastGrowthSyncAtUtc,
+            nowUtc,
+            ECONOMY_CONFIG.GAME_TIME_SCALE
+          )
+        : { ageDays: loaded.cat.ageDays, lastGrowthSyncAtUtc: nowUtc, deltaDays: 0 };
 
       let cat = {
         ...loaded.cat,
@@ -507,22 +647,45 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
       let room = loaded.room;
       let equipment = loaded.equipment;
+      let survival = loaded.survival;
+      let memorials = loaded.memorials;
 
-      const offlineNeeds = applyOfflineElapsed(cat, room, elapsedSeconds);
-      cat = offlineNeeds.cat;
-      room = offlineNeeds.room;
+      if (survival.isAlive) {
+        const offlineNeeds = applyOfflineElapsed(cat, room, elapsedSeconds);
+        cat = offlineNeeds.cat;
+        room = offlineNeeds.room;
 
-      const offlineEquip = applyOfflineEquipmentSimulation(
-        equipment,
-        cat,
-        room,
-        loaded.placedFurniture,
-        elapsedSeconds,
-        nowUtc
-      );
-      equipment = offlineEquip.equipment;
-      cat = offlineEquip.cat;
-      room = offlineEquip.room;
+        const offlineEquip = applyOfflineEquipmentSimulation(
+          equipment,
+          cat,
+          room,
+          loaded.placedFurniture,
+          elapsedSeconds,
+          nowUtc
+        );
+        equipment = offlineEquip.equipment;
+        cat = offlineEquip.cat;
+        room = offlineEquip.room;
+
+        const offlineSurv = applyOfflineSurvival(
+          cat,
+          survival,
+          room,
+          elapsedSeconds,
+          loaded.settings.survivalMode,
+          loaded.settings.offlineGraceHours,
+          nowUtc
+        );
+        cat = offlineSurv.cat;
+        survival = offlineSurv.survival;
+        if (offlineSurv.justDied) {
+          memorials = [createMemorialEntry(cat, survival, loaded.photos, nowUtc), ...memorials].slice(
+            0,
+            30
+          );
+        }
+      }
+
       cat.lifeStage = getLifeStageForAge(cat.ageDays);
       cat.emotion = evaluateCatEmotion(cat);
 
@@ -533,24 +696,31 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       soundManager.setEnabled(loaded.settings.soundEnabled);
 
+      const needsHumanSetup = !loaded.hasCreatedHuman;
+      const needsCatSetup = loaded.hasCreatedHuman && !loaded.hasAdoptedInitialCat;
+
       set({
         ...loaded,
         cat,
         room,
         equipment,
+        survival,
+        memorials,
         playerEnergy: energySync.energy,
         lastGrowthSyncAtUtc: ageSync.lastGrowthSyncAtUtc,
         dailyTasks,
         lastDailyResetDay: today,
         hydrated: true,
-        showAdoptFlow: !loaded.hasAdoptedInitialCat,
+        showHumanCreator: needsHumanSetup,
+        humanCreatorMode: 'initial',
+        showAdoptFlow: needsCatSetup,
+        showMemorialModal: !survival.isAlive,
         lastSavedAt: nowUtc
       });
 
-      // Immediately persist updated UTC sync timestamps so refreshing never duplicates growth or energy!
       scheduleAutoSave(get, set, true);
 
-      if (elapsedSeconds > 180 && loaded.hasAdoptedInitialCat) {
+      if (elapsedSeconds > 180 && loaded.hasAdoptedInitialCat && survival.isAlive) {
         const lang = loaded.settings.language;
         get().showToast(
           lang === 'th'
@@ -576,33 +746,44 @@ export const useGameStore = create<GameStore>((set, get) => {
     resetGame: async () => {
       clearCareTimers();
       await clearSavedGame();
-      const fresh = createInitialSaveData('siamese', { hasAdoptedInitialCat: false });
+      const fresh = createInitialSaveData('siamese', {
+        hasAdoptedInitialCat: false,
+        hasCreatedHuman: false
+      });
       set({
         ...fresh,
         activeTab: 'care',
-        drawerOpen: false,
+        ...CLOSED_MENU_PATCH,
         activeToy: null,
         activeMinigameSession: null,
         activeCareAction: null,
         decorateMode: false,
         selectedFurnitureInstanceId: null,
         placingCatalogId: null,
-        showSettings: false,
-        showProfileModal: false,
-        showEquipmentModal: false,
-        showAdoptFlow: true
+        showMemorialModal: false,
+        showAdoptFlow: false,
+        showHumanCreator: true,
+        humanCreatorMode: 'initial'
       });
       soundManager.setEnabled(fresh.settings.soundEnabled);
     },
 
     stepSimulation: (dtSeconds, playerFocusPoint, activeToyTarget, soundEventPos) => {
       const state = get();
-      if (!state.hydrated || !state.hasAdoptedInitialCat || state.activeMinigameSession) return;
+      if (
+        !state.hydrated ||
+        !state.hasCreatedHuman ||
+        !state.hasAdoptedInitialCat ||
+        state.activeMinigameSession ||
+        !state.survival.isAlive
+      ) {
+        return;
+      }
 
       const nowUtc = Date.now();
       const prevStage = state.cat.lifeStage;
 
-      // Frame-rate independent real-time growth & UTC player energy reconciliation
+      // 1. Frame-rate independent real-time growth & UTC player energy reconciliation
       const ageSync = advanceAgeFromUtc(
         state.cat.ageDays,
         state.lastGrowthSyncAtUtc,
@@ -612,6 +793,118 @@ export const useGameStore = create<GameStore>((set, get) => {
       const nextStage = getLifeStageForAge(ageSync.ageDays);
       const energySync = reconcilePlayerEnergy(state.playerEnergy, nowUtc);
 
+      // 2. Centralized Human Action Controller & Third-Person Navigation
+      let nextHuman = { ...state.human };
+      let nextAction = state.activeCareAction ? { ...state.activeCareAction } : null;
+      let shouldCommitAction = false;
+      let shouldFinishAction = false;
+
+      if (nextAction) {
+        // Safety timeout prevents stuck animations under any furniture layout
+        if (nowUtc - nextAction.startedAtMs >= nextAction.maxTotalMs) {
+          if (!nextAction.committed) shouldCommitAction = true;
+          shouldFinishAction = true;
+        } else if (nextAction.phase === 'approaching' || nextAction.phase === 'aligning') {
+          // Dynamically track moving cat during direct cat interactions
+          const tracksMovingCat =
+            nextAction.type === 'pet' ||
+            nextAction.type === 'brush' ||
+            nextAction.type === 'pickup' ||
+            (nextAction.type === 'feed' && nextAction.foodId === 'kitten_milk');
+          if (tracksMovingCat) {
+            const catMoved = Math.hypot(
+              state.cat.position.x - nextAction.alignTarget.x,
+              state.cat.position.z - nextAction.alignTarget.z
+            );
+            if (catMoved > 0.22) {
+              const updatedSpots = computeActionInteractionSpots(
+                nextAction.type,
+                state.cat,
+                state.placedFurniture,
+                { x: nextHuman.position.x, z: nextHuman.position.z },
+                { foodId: nextAction.foodId, targetInstanceId: nextAction.targetInstanceId }
+              );
+              nextAction.targetPoint = updatedSpots.targetPoint;
+              nextAction.alignTarget = updatedSpots.alignTarget;
+            }
+          }
+
+          const nav = stepHumanNavigation(
+            nextHuman,
+            nextAction.targetPoint,
+            nextAction.alignTarget,
+            state.placedFurniture,
+            dtSeconds
+          );
+          nextHuman = nav.human;
+
+          if (nav.arrived && !nav.aligned) {
+            nextAction.phase = 'aligning';
+          } else if (nav.arrived && nav.aligned) {
+            nextAction.phase = 'performing';
+            nextAction.phaseStartedAtMs = nowUtc;
+            nextHuman.animState = mapActionToHumanAnim(nextAction);
+            nextHuman.velocity = { x: 0, z: 0 };
+          }
+        } else if (nextAction.phase === 'performing') {
+          const perfElapsed = nowUtc - nextAction.phaseStartedAtMs;
+          nextHuman.animState = mapActionToHumanAnim(nextAction);
+          if (nextAction.type === 'pickup') {
+            const frac = clamp(perfElapsed / nextAction.durationMs, 0, 1);
+            nextHuman.carryingCat = frac >= 0.28 && frac <= 0.72 && !nextAction.bitten;
+            nextHuman.animState =
+              frac < 0.28 ? 'pickup_cat' : frac <= 0.72 ? 'carry_cat' : 'putdown_cat';
+          } else {
+            nextHuman.carryingCat = false;
+          }
+
+          if (!nextAction.committed && perfElapsed >= nextAction.contactAtMs) {
+            shouldCommitAction = true;
+          }
+          if (perfElapsed >= nextAction.durationMs) {
+            shouldFinishAction = true;
+          }
+        }
+      } else if (activeToyTarget) {
+        // When player plays with an active toy (e.g., feather wand), human turns gently toward toy & plays
+        const desiredSpot = computeActionInteractionSpots(
+          'play_toy',
+          state.cat,
+          state.placedFurniture,
+          { x: nextHuman.position.x, z: nextHuman.position.z }
+        );
+        const distToCat = Math.hypot(
+          nextHuman.position.x - state.cat.position.x,
+          nextHuman.position.z - state.cat.position.z
+        );
+        if (distToCat > 1.55) {
+          const nav = stepHumanNavigation(
+            nextHuman,
+            desiredSpot.targetPoint,
+            { x: activeToyTarget.x, z: activeToyTarget.z },
+            state.placedFurniture,
+            dtSeconds
+          );
+          nextHuman = nav.human;
+        } else {
+          const nav = stepHumanNavigation(
+            nextHuman,
+            { x: nextHuman.position.x, z: nextHuman.position.z },
+            { x: activeToyTarget.x, z: activeToyTarget.z },
+            state.placedFurniture,
+            dtSeconds
+          );
+          nextHuman = nav.human;
+          nextHuman.animState = 'play_toy';
+        }
+      } else {
+        // Calm idle breathing & gentle settling
+        nextHuman.velocity = { x: 0, z: 0 };
+        nextHuman.carryingCat = false;
+        nextHuman.animState = 'idle';
+      }
+
+      // 3. Cat Needs, Weight & Survival Simulation
       const onSmartBed = state.equipment.smartCatBed.occupied;
       const { needs, room } = tickNeeds(
         state.cat,
@@ -626,13 +919,42 @@ export const useGameStore = create<GameStore>((set, get) => {
         ECONOMY_CONFIG.GAME_TIME_SCALE
       );
 
-      const catWithUpdates = {
+      let catWithUpdates = {
         ...state.cat,
         ageDays: ageSync.ageDays,
         lifeStage: nextStage,
         needs,
         weight: nextWeight
       };
+
+      const survStep = stepSurvivalLive(
+        catWithUpdates,
+        state.survival,
+        room,
+        dtSeconds,
+        state.settings.survivalMode,
+        nowUtc
+      );
+      catWithUpdates = survStep.cat;
+      const nextSurvival = survStep.survival;
+      let nextMemorials = state.memorials;
+      let openMemorial = state.showMemorialModal;
+
+      if (survStep.justDied) {
+        const mem = createMemorialEntry(catWithUpdates, nextSurvival, state.photos, nowUtc);
+        nextMemorials = [mem, ...state.memorials].slice(0, 30);
+        openMemorial = true;
+        nextAction = null;
+        nextHuman.carryingCat = false;
+        nextHuman.animState = 'idle';
+      }
+
+      // 4. Cat AI (recognizes physical 3D human position, approaching state & carried state!)
+      const humanIsApproaching = Boolean(
+        nextAction &&
+          (nextAction.phase === 'approaching' || nextAction.phase === 'aligning') &&
+          nextAction.type !== 'respect_space'
+      );
 
       const aiRes = stepCatAI(
         catWithUpdates,
@@ -641,6 +963,9 @@ export const useGameStore = create<GameStore>((set, get) => {
           room,
           equipment: state.equipment,
           playerFocusPoint,
+          humanPosition: { x: nextHuman.position.x, z: nextHuman.position.z },
+          humanIsApproaching,
+          catIsCarried: nextHuman.carryingCat,
           activeToyTarget,
           soundEventPos
         },
@@ -722,7 +1047,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         );
       }
 
-      // Step independent automatic equipment simulation
+      // 5. Independent Automatic Equipment Simulation
       const equipStep = stepEquipmentSimulation(
         nextEquip,
         aiRes.cat,
@@ -742,9 +1067,12 @@ export const useGameStore = create<GameStore>((set, get) => {
         }
       }
 
-      const updatedPayload: SaveDataV3 = {
+      const updatedPayload: SaveDataV4 = {
         ...extractSavePayload(state),
+        human: nextHuman,
         cat: aiRes.cat,
+        survival: nextSurvival,
+        memorials: nextMemorials,
         room: nextRoom,
         equipment: nextEquip,
         stats: nextStats,
@@ -757,7 +1085,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const resetDaily = state.lastDailyResetDay < today;
 
       set({
+        human: nextHuman,
+        activeCareAction: nextAction,
         cat: aiRes.cat,
+        survival: nextSurvival,
+        memorials: nextMemorials,
+        showMemorialModal: openMemorial,
         room: nextRoom,
         equipment: nextEquip,
         stats: nextStats,
@@ -769,6 +1102,34 @@ export const useGameStore = create<GameStore>((set, get) => {
         dailyTasks: resetDaily ? createDefaultDailyTasks() : state.dailyTasks,
         lastDailyResetDay: resetDaily ? today : state.lastDailyResetDay
       });
+
+      // Dispatch synchronized contact/completion hooks outside the state build
+      if (shouldCommitAction) {
+        get().commitActiveCareAction();
+      }
+      if (shouldFinishAction) {
+        get().finishActiveCareAction();
+      }
+
+      // Periodic non-spammy welfare warning toast for critical/escalating neglect
+      if (
+        nextSurvival.isAlive &&
+        nextSurvival.warnings.length > 0 &&
+        nowUtc - lastWarningToastMs > 45_000
+      ) {
+        const urgent = nextSurvival.warnings.find(
+          (w) => w.severity === 'critical' || w.severity === 'escalating'
+        );
+        if (urgent) {
+          lastWarningToastMs = nowUtc;
+          const lang = state.settings.language;
+          state.showToast(lang === 'th' ? urgent.messageTh : urgent.messageEn, 'warn');
+        }
+      }
+
+      if (survStep.justDied) {
+        scheduleAutoSave(get, set, true);
+      }
 
       if (prevStage !== nextStage) {
         soundManager.playSoftChime(780);
@@ -804,21 +1165,59 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
     setDrawerOpen: (open) => set({ drawerOpen: open }),
+    closeAllMenus: () => set({ ...CLOSED_MENU_PATCH }),
     setPhotoMode: (enabled) =>
       set({
         photoMode: enabled,
-        drawerOpen: false,
+        ...CLOSED_MENU_PATCH,
         decorateMode: false,
         activeToy: enabled ? null : get().activeToy
       }),
     setShowSettings: (open) => set({ showSettings: open }),
     setShowProfileModal: (open) => set({ showProfileModal: open }),
     setShowAdoptFlow: (open) => set({ showAdoptFlow: open }),
+    openHumanCreator: (mode) =>
+      set({
+        ...CLOSED_MENU_PATCH,
+        showHumanCreator: true,
+        humanCreatorMode: mode
+      }),
+    closeHumanCreator: () => {
+      if (get().hasCreatedHuman) {
+        set({ showHumanCreator: false });
+      }
+    },
+    saveHumanAppearance: (appearance) => {
+      const state = get();
+      const cleaned: HumanAppearance = {
+        ...appearance,
+        name: appearance.name.trim().slice(0, 20) || (state.settings.language === 'th' ? 'เจ้าของน้องแมว' : 'Owner')
+      };
+      const needsAdopt = !state.hasAdoptedInitialCat;
+      set({
+        humanAppearance: cleaned,
+        hasCreatedHuman: true,
+        showHumanCreator: false,
+        showAdoptFlow: needsAdopt ? true : state.showAdoptFlow
+      });
+      soundManager.playSoftChime(760);
+      const lang = state.settings.language;
+      if (!needsAdopt) {
+        state.showToast(
+          lang === 'th'
+            ? `บันทึกชุดและรูปลักษณ์ของ ${cleaned.name} เรียบร้อยแล้ว!`
+            : `Saved ${cleaned.name}'s appearance & outfit!`,
+          'celebrate'
+        );
+      }
+      scheduleAutoSave(get, set, true);
+    },
     setShowAlbumModal: (open) => set({ showAlbumModal: open }),
     setShowTasksModal: (open) => set({ showTasksModal: open }),
     setShowEquipmentModal: (open) => set({ showEquipmentModal: open }),
+    setShowMemorialModal: (open) => set({ showMemorialModal: open }),
 
-    // --- SYNCHRONIZED VISIBLE-HAND CARE ACTIONS (ZERO COINS AWARDED!) ---
+    // --- CENTRALIZED THIRD-PERSON HUMAN-TO-CAT CARE ACTIONS (AUTO-CLOSE MENUS; ZERO COINS!) ---
 
     feedCat: (foodId, immediate = false) => {
       const state = get();
@@ -838,7 +1237,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       const foodBowl = state.placedFurniture.find((f) => f.catalogId === 'food_bowl_ceramic');
       return beginCareAction('feed', {
-        durationMs: 1750,
+        durationMs: 1850,
         contactAtMs: 850,
         foodId,
         targetInstanceId: foodBowl?.instanceId,
@@ -851,7 +1250,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const fountain = hasPlacedEquipment(state.placedFurniture, 'auto_water_fountain');
       const bowl = state.placedFurniture.find((f) => f.catalogId === 'water_bowl_ceramic');
       return beginCareAction('water', {
-        durationMs: 1650,
+        durationMs: 1750,
         contactAtMs: 800,
         targetInstanceId: (fountain ?? bowl)?.instanceId,
         immediate
@@ -860,23 +1259,31 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     petCat: (immediate = false) => {
       return beginCareAction('pet', {
-        durationMs: 1600,
-        contactAtMs: 700,
+        durationMs: 1800,
+        contactAtMs: 750,
+        immediate
+      });
+    },
+
+    pickupCat: (immediate = false) => {
+      return beginCareAction('pickup', {
+        durationMs: 2800,
+        contactAtMs: 900,
         immediate
       });
     },
 
     respectCatSpace: (immediate = false) => {
       return beginCareAction('respect_space', {
-        durationMs: 1200,
-        contactAtMs: 520,
+        durationMs: 1350,
+        contactAtMs: 550,
         immediate
       });
     },
 
     brushCat: (immediate = false) => {
       return beginCareAction('brush', {
-        durationMs: 1850,
+        durationMs: 2050,
         contactAtMs: 860,
         immediate
       });
@@ -884,8 +1291,8 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     tuckCatToSleep: (immediate = false) => {
       return beginCareAction('sleep', {
-        durationMs: 1350,
-        contactAtMs: 600,
+        durationMs: 1500,
+        contactAtMs: 650,
         immediate
       });
     },
@@ -896,7 +1303,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         (f) => f.catalogId === 'litter_box_cozy' || f.catalogId === 'auto_litter_box'
       );
       return beginCareAction('clean_litter', {
-        durationMs: 1700,
+        durationMs: 1850,
         contactAtMs: 820,
         targetInstanceId: litter?.instanceId,
         immediate
@@ -905,8 +1312,8 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     cleanLivingArea: (immediate = false) => {
       return beginCareAction('clean_room', {
-        durationMs: 1500,
-        contactAtMs: 720,
+        durationMs: 1600,
+        contactAtMs: 740,
         immediate
       });
     },
@@ -916,7 +1323,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const fountain = hasPlacedEquipment(state.placedFurniture, 'auto_water_fountain');
       if (!fountain) return false;
       return beginCareAction('refill_fountain', {
-        durationMs: 1650,
+        durationMs: 1750,
         contactAtMs: 800,
         targetInstanceId: fountain.instanceId,
         immediate
@@ -928,7 +1335,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const fountain = hasPlacedEquipment(state.placedFurniture, 'auto_water_fountain');
       if (!fountain) return false;
       return beginCareAction('clean_fountain', {
-        durationMs: 1650,
+        durationMs: 1750,
         contactAtMs: 820,
         targetInstanceId: fountain.instanceId,
         immediate
@@ -940,7 +1347,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const autoLitter = hasPlacedEquipment(state.placedFurniture, 'auto_litter_box');
       if (!autoLitter) return false;
       return beginCareAction('empty_auto_litter', {
-        durationMs: 1650,
+        durationMs: 1750,
         contactAtMs: 800,
         targetInstanceId: autoLitter.instanceId,
         immediate
@@ -956,6 +1363,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       const nowUtc = Date.now();
       const panX = clamp(state.cat.position.x / 2.8, -0.85, 0.85);
       const markedCommitted: ActiveCareAction = { ...action, committed: true };
+
+      const notifyQuestComplete = (titleTh?: string, titleEn?: string) => {
+        if (!titleTh && !titleEn) return;
+        soundManager.playSoftChime(860);
+        setTimeout(() => {
+          get().showToast(
+            lang === 'th'
+              ? `🎯 ภารกิจสำเร็จ: "${titleTh}" — กดปุ่มภารกิจเพื่อรับรางวัล!`
+              : `🎯 Quest complete: "${titleEn}" — tap Quests to claim reward!`,
+            'celebrate'
+          );
+        }, 900);
+      };
 
       if (action.type === 'feed' && action.foodId) {
         const foodId = action.foodId;
@@ -981,29 +1401,34 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const nextSurvival = recordSurvivalCare(state.survival, 'food', nowUtc);
+        nextSurvival.warnings = evaluateWelfareWarnings(res.cat, nextSurvival, res.room);
         const nextStats = { ...state.stats, totalFeeds: state.stats.totalFeeds + 1 };
-        const nextTasks = incrementDailyTask(state.dailyTasks, 'feed');
+        const taskRes = incrementDailyTask(state.dailyTasks, 'feed');
         const ach = evaluateAchievements({
           ...extractSavePayload(state),
           cat: res.cat,
+          survival: nextSurvival,
           room: res.room,
           foodInventory: nextInv,
           stats: nextStats
         });
         set({
           cat: res.cat,
+          survival: nextSurvival,
           room: res.room,
           foodInventory: nextInv,
           coins: ach.coins,
           claimedRewardIds: ach.claimedRewardIds,
-          dailyTasks: nextTasks,
+          dailyTasks: taskRes.tasks,
           achievements: ach.achievements,
           stats: nextStats,
           activeCareAction: markedCommitted,
           particleCue: { type: 'heart', seq: state.particleCue.seq + 1 }
         });
         state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'warm');
-        scheduleAutoSave(get, set);
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
         return;
       }
 
@@ -1021,6 +1446,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const nextSurvival = recordSurvivalCare(state.survival, 'water', nowUtc);
+        nextSurvival.warnings = evaluateWelfareWarnings(res.cat, nextSurvival, res.room);
         const nextEquip = fountain
           ? {
               ...state.equipment,
@@ -1033,6 +1460,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           : state.equipment;
         set({
           cat: res.cat,
+          survival: nextSurvival,
           room: res.room,
           equipment: nextEquip,
           activeCareAction: markedCommitted,
@@ -1091,34 +1519,79 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const nextSurvival = recordSurvivalCare(state.survival, 'general', nowUtc);
+        nextSurvival.warnings = evaluateWelfareWarnings(res.cat, nextSurvival, state.room);
         const nextStats = { ...state.stats, totalPets: state.stats.totalPets + 1 };
-        const nextTasks = incrementDailyTask(state.dailyTasks, 'bond');
+        const taskRes = incrementDailyTask(state.dailyTasks, 'bond');
         const ach = evaluateAchievements({
           ...extractSavePayload(state),
           cat: res.cat,
+          survival: nextSurvival,
           stats: nextStats
         });
         set({
           cat: res.cat,
+          survival: nextSurvival,
           coins: ach.coins,
           claimedRewardIds: ach.claimedRewardIds,
-          dailyTasks: nextTasks,
+          dailyTasks: taskRes.tasks,
           achievements: ach.achievements,
           stats: nextStats,
           activeCareAction: markedCommitted,
           particleCue: { type: 'heart', seq: state.particleCue.seq + 1 }
         });
         state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'warm');
-        scheduleAutoSave(get, set);
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
+        return;
+      }
+
+      if (action.type === 'pickup') {
+        const res = performPickupAction(state.cat, state.room, nowUtc);
+        soundManager.playVocalCue(res.vocalCue, state.cat.ageDays, true, panX);
+        if (!res.success) {
+          const nextBiteSeq = res.triggeredBite
+            ? { seq: state.biteFeedback.seq + 1, triggeredAtMs: nowUtc }
+            : state.biteFeedback;
+          set({
+            cat: res.cat,
+            biteFeedback: nextBiteSeq,
+            human: { ...state.human, carryingCat: false },
+            activeCareAction: { ...markedCommitted, bitten: Boolean(res.triggeredBite) }
+          });
+          state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'warn');
+          scheduleAutoSave(get, set);
+          return;
+        }
+        const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
+        res.cat.level = lvl.level;
+        res.cat.xp = lvl.xp;
+        const nextSurvival = recordSurvivalCare(state.survival, 'general', nowUtc);
+        nextSurvival.warnings = evaluateWelfareWarnings(res.cat, nextSurvival, state.room);
+        const taskRes = incrementDailyTask(state.dailyTasks, 'bond');
+        set({
+          cat: res.cat,
+          survival: nextSurvival,
+          dailyTasks: taskRes.tasks,
+          activeCareAction: markedCommitted,
+          particleCue: { type: 'heart', seq: state.particleCue.seq + 1 }
+        });
+        state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'warm');
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
         return;
       }
 
       if (action.type === 'respect_space') {
         const res = performRespectSpaceAction(state.cat, state.room);
         soundManager.playVocalCue(res.vocalCue, state.cat.ageDays, true, panX);
-        // STRICT ANTI-EXPLOIT: 0 Coins, 0 XP, never farms daily task or currency!
+        const nextSurvival = {
+          ...state.survival,
+          warnings: evaluateWelfareWarnings(res.cat, state.survival, state.room)
+        };
         set({
           cat: res.cat,
+          survival: nextSurvival,
           activeCareAction: markedCommitted,
           particleCue: { type: 'sparkle', seq: state.particleCue.seq + 1 }
         });
@@ -1150,14 +1623,19 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const nextSurvival = recordSurvivalCare(state.survival, 'general', nowUtc);
+        nextSurvival.warnings = evaluateWelfareWarnings(res.cat, nextSurvival, state.room);
+        const taskRes = incrementDailyTask(state.dailyTasks, 'bond');
         set({
           cat: res.cat,
-          dailyTasks: incrementDailyTask(state.dailyTasks, 'bond'),
+          survival: nextSurvival,
+          dailyTasks: taskRes.tasks,
           activeCareAction: markedCommitted,
           particleCue: { type: 'sparkle', seq: state.particleCue.seq + 1 }
         });
         state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'warm');
-        scheduleAutoSave(get, set);
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
         return;
       }
 
@@ -1196,6 +1674,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const taskRes = incrementDailyTask(state.dailyTasks, 'clean');
         set({
           cat: res.cat,
           room: res.room,
@@ -1208,7 +1687,7 @@ export const useGameStore = create<GameStore>((set, get) => {
               needsCleaning: false
             }
           },
-          dailyTasks: incrementDailyTask(state.dailyTasks, 'clean'),
+          dailyTasks: taskRes.tasks,
           stats: { ...state.stats, totalCleans: state.stats.totalCleans + 1 },
           activeCareAction: markedCommitted,
           particleCue: { type: 'sparkle', seq: state.particleCue.seq + 1 }
@@ -1223,7 +1702,8 @@ export const useGameStore = create<GameStore>((set, get) => {
               : res.messageEn,
           'info'
         );
-        scheduleAutoSave(get, set);
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
         return;
       }
 
@@ -1233,23 +1713,54 @@ export const useGameStore = create<GameStore>((set, get) => {
         const lvl = addXpAndCheckLevel(res.cat.level, res.cat.xp, res.xpEarned);
         res.cat.level = lvl.level;
         res.cat.xp = lvl.xp;
+        const taskRes = incrementDailyTask(state.dailyTasks, 'clean');
         set({
           cat: res.cat,
           room: res.room,
-          dailyTasks: incrementDailyTask(state.dailyTasks, 'clean'),
+          dailyTasks: taskRes.tasks,
           stats: { ...state.stats, totalCleans: state.stats.totalCleans + 1 },
           activeCareAction: markedCommitted,
           particleCue: { type: 'sparkle', seq: state.particleCue.seq + 1 }
         });
         state.showToast(lang === 'th' ? res.messageTh : res.messageEn, 'info');
-        scheduleAutoSave(get, set);
+        notifyQuestComplete(taskRes.newlyCompletedTitleTh, taskRes.newlyCompletedTitleEn);
+        scheduleAutoSave(get, set, true);
       }
     },
 
     finishActiveCareAction: () => {
       clearCareTimers();
-      if (get().activeCareAction !== null) {
-        set({ activeCareAction: null });
+      const state = get();
+      if (state.activeCareAction !== null) {
+        set({
+          activeCareAction: null,
+          human: {
+            ...state.human,
+            velocity: { x: 0, z: 0 },
+            targetPosition: null,
+            carryingCat: false,
+            animState: 'idle',
+            navStuckTimer: 0
+          }
+        });
+      }
+    },
+
+    cancelActiveCareAction: () => {
+      clearCareTimers();
+      const state = get();
+      if (state.activeCareAction !== null) {
+        set({
+          activeCareAction: null,
+          human: {
+            ...state.human,
+            velocity: { x: 0, z: 0 },
+            targetPosition: null,
+            carryingCat: false,
+            animState: 'idle',
+            navStuckTimer: 0
+          }
+        });
       }
     },
 
@@ -1348,6 +1859,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
 
       set({
+        ...CLOSED_MENU_PATCH,
         equipment: res.equipment,
         cat: nextCat
       });
@@ -1382,6 +1894,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const cur = state.equipment.autoCatToy;
       if (cur.enabled) {
         set({
+          ...CLOSED_MENU_PATCH,
           equipment: {
             ...state.equipment,
             autoCatToy: {
@@ -1408,6 +1921,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       soundManager.playSoftChime(680);
       set({
+        ...CLOSED_MENU_PATCH,
         equipment: {
           ...state.equipment,
           autoCatToy: {
@@ -1427,7 +1941,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       return true;
     },
 
-    // --- TOYS (ZERO COINS AWARDED!) ---
+    // --- TOYS (AUTO-CLOSE MENUS; ZERO COINS AWARDED!) ---
 
     activateToy: (toy) => {
       const state = get();
@@ -1435,6 +1949,11 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       if (toy === null) {
         set({ activeToy: null });
+        return;
+      }
+
+      if (!state.survival.isAlive) {
+        set({ showMemorialModal: true });
         return;
       }
 
@@ -1488,12 +2007,13 @@ export const useGameStore = create<GameStore>((set, get) => {
             }
           };
           nextCat.emotion = evaluateCatEmotion(nextCat);
+          const taskRes = incrementDailyTask(state.dailyTasks, 'play');
 
           set({
+            ...CLOSED_MENU_PATCH,
             activeToy: null,
-            drawerOpen: false,
             cat: nextCat,
-            dailyTasks: incrementDailyTask(state.dailyTasks, 'play'),
+            dailyTasks: taskRes.tasks,
             stats: { ...state.stats, totalPlays: state.stats.totalPlays + 1 },
             particleCue: { type: 'music', seq: state.particleCue.seq + 1 }
           });
@@ -1514,7 +2034,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
 
       soundManager.playSoftChime(660);
-      set({ activeToy: toy, drawerOpen: false, decorateMode: false });
+      set({
+        ...CLOSED_MENU_PATCH,
+        activeToy: toy,
+        decorateMode: false
+      });
     },
 
     recordToyPlayReward: () => {
@@ -1545,16 +2069,25 @@ export const useGameStore = create<GameStore>((set, get) => {
         }
       };
       nextCat.emotion = evaluateCatEmotion(nextCat);
+      const taskRes = incrementDailyTask(state.dailyTasks, 'play');
 
-      // Zero Coins from ordinary toy play — prevents infinite coin loops!
       set({
         cat: nextCat,
-        dailyTasks: incrementDailyTask(state.dailyTasks, 'play'),
+        dailyTasks: taskRes.tasks,
         stats: { ...state.stats, totalPlays: state.stats.totalPlays + 1 },
         particleCue: { type: 'music', seq: state.particleCue.seq + 1 }
       });
       soundManager.playVocalCue('play_chirp', state.cat.ageDays, true);
-      scheduleAutoSave(get, set);
+      if (taskRes.newlyCompletedTitleEn) {
+        const lang = state.settings.language;
+        state.showToast(
+          lang === 'th'
+            ? `🎯 ภารกิจสำเร็จ: "${taskRes.newlyCompletedTitleTh}" — กดปุ่มภารกิจเพื่อรับรางวัล!`
+            : `🎯 Quest complete: "${taskRes.newlyCompletedTitleEn}" — tap Quests to claim reward!`,
+          'celebrate'
+        );
+      }
+      scheduleAutoSave(get, set, true);
     },
 
     // --- ENERGY-GATED 60-SECOND MINIGAMES ---
@@ -1563,7 +2096,6 @@ export const useGameStore = create<GameStore>((set, get) => {
       const state = get();
       const lang = state.settings.language;
 
-      // Prevent simultaneous minigames or rapid double-tap deductions
       if (state.activeMinigameSession !== null) {
         return { started: false };
       }
@@ -1601,14 +2133,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
 
       set({
+        ...CLOSED_MENU_PATCH,
         playerEnergy: energyRes.energy,
         activeMinigameSession: session,
-        drawerOpen: false,
         activeToy: null,
         decorateMode: false
       });
 
-      // Immediately save energy deduction atomically so browser refresh cannot refund energy!
       scheduleAutoSave(get, set, true);
       return { started: true, sessionId };
     },
@@ -1776,7 +2307,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     setDecorateMode: (enabled) => {
       set({
         decorateMode: enabled,
-        drawerOpen: false,
+        ...CLOSED_MENU_PATCH,
         activeToy: null,
         selectedFurnitureInstanceId: enabled ? get().selectedFurnitureInstanceId : null,
         placingCatalogId: null
@@ -1790,7 +2321,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     startPlacingFurniture: (catalogId) =>
       set({
         decorateMode: true,
-        drawerOpen: false,
+        ...CLOSED_MENU_PATCH,
         placingCatalogId: catalogId,
         selectedFurnitureInstanceId: null
       }),
@@ -1901,7 +2432,6 @@ export const useGameStore = create<GameStore>((set, get) => {
       const item = FURNITURE_CATALOG.find((i) => i.id === catalogId);
       if (!item) return false;
 
-      // Automatic equipment items are unique per room — prevent buying accidental duplicates
       if (item.isAutoEquipment && (state.ownedFurniture[catalogId] ?? 0) >= 1) {
         state.showToast(
           lang === 'th'
@@ -1993,7 +2523,13 @@ export const useGameStore = create<GameStore>((set, get) => {
         claimId,
         task.rewardCoins
       );
-      if (!tx.applied) return false;
+      if (!tx.applied) {
+        // Ensure claimed flag stays consistent if claimId already persisted
+        set({
+          dailyTasks: state.dailyTasks.map((t) => (t.id === taskId ? { ...t, claimed: true } : t))
+        });
+        return false;
+      }
 
       const lvl = addXpAndCheckLevel(state.cat.level, state.cat.xp, task.rewardXp);
       set({
@@ -2029,16 +2565,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
 
       const nextStats = { ...state.stats, totalPhotos: state.stats.totalPhotos + 1 };
-      const nextTasks = incrementDailyTask(state.dailyTasks, 'photo');
+      const taskRes = incrementDailyTask(state.dailyTasks, 'photo');
       const ach = evaluateAchievements({
         ...extractSavePayload(state),
         stats: nextStats
       });
 
-      // Zero direct coins per photo tap (prevents photo spam farming; daily task & achievement reward once!)
       set({
         photos: [entry, ...state.photos].slice(0, 20),
-        dailyTasks: nextTasks,
+        dailyTasks: taskRes.tasks,
         stats: nextStats,
         achievements: ach.achievements,
         coins: ach.coins,
@@ -2050,7 +2585,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         lang === 'th' ? 'บันทึกภาพลงอัลบั้มเรียบร้อยแล้ว!' : 'Saved photo to album!',
         'celebrate'
       );
-      scheduleAutoSave(get, set);
+      scheduleAutoSave(get, set, true);
     },
 
     deletePhoto: (photoId) => {
@@ -2059,9 +2594,16 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     updateSettings: (patch) => {
-      const next = { ...get().settings, ...patch };
+      const state = get();
+      const next = { ...state.settings, ...patch };
       soundManager.setEnabled(next.soundEnabled);
-      set({ settings: next });
+      set({
+        settings: next,
+        survival: {
+          ...state.survival,
+          offlineGraceHours: next.offlineGraceHours
+        }
+      });
       scheduleAutoSave(get, set);
     },
 
@@ -2079,10 +2621,11 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     adoptCustomizedKitten: ({ name, sex, breed, furColorId, furPattern, eyeColorId }) => {
       const nowUtc = Date.now();
+      const state = get();
       const def = getBreedDefinition(breed);
       const colors = resolveCoatHexColors(furColorId, furPattern);
       const eyeHex = EYE_COLOR_PALETTE[eyeColorId].hex;
-      const bed = get().placedFurniture.find((f) => getCatalogItem(f.catalogId)?.category === 'bed');
+      const bed = state.placedFurniture.find((f) => getCatalogItem(f.catalogId)?.category === 'bed');
 
       const identity: CatIdentity = {
         id: `cat_${nowUtc}`,
@@ -2103,11 +2646,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const weight = createInitialWeightState(breed, 2);
       const fresh = createInitialSaveData(breed, {
         hasAdoptedInitialCat: true,
+        hasCreatedHuman: true,
         customIdentity: identity,
         nowUtc
       });
 
-      const newCat: SaveDataV3['cat'] = {
+      const newCat: SaveDataV4['cat'] = {
         ...fresh.cat,
         identity,
         traits,
@@ -2120,24 +2664,29 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
       newCat.emotion = evaluateCatEmotion(newCat);
 
-      const currentMilk = get().foodInventory.kitten_milk ?? 0;
+      const currentMilk = state.foodInventory.kitten_milk ?? 0;
       const nextFoodInventory = {
-        ...get().foodInventory,
+        ...state.foodInventory,
         kitten_milk: Math.max(currentMilk, 6)
       };
 
       set({
         hasAdoptedInitialCat: true,
+        hasCreatedHuman: true,
         showAdoptFlow: false,
-        showProfileModal: false,
+        showMemorialModal: false,
+        ...CLOSED_MENU_PATCH,
         activeToy: null,
+        activeCareAction: null,
         lastGrowthSyncAtUtc: nowUtc,
         cat: newCat,
+        survival: createInitialSurvivalState(nowUtc, state.settings.offlineGraceHours),
+        human: createInitialHumanState(),
         foodInventory: nextFoodInventory
       });
 
       soundManager.playVocalCue('kitten_mew', 2, true);
-      const lang = get().settings.language;
+      const lang = state.settings.language;
       get().showToast(
         lang === 'th'
           ? `ยินดีต้อนรับ "${identity.name}" ลูกแมว${def.nameTh}ตัวน้อยสู่บ้านใหม่!`

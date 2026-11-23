@@ -53,6 +53,8 @@ export const ECONOMY_CONFIG = {
     feed: 2600,
     brush: 3200,
     water: 2600,
+    pickup: 3500,
+    play_toy: 2600,
     clean_litter: 3200,
     clean_room: 3200,
     respect_space: 3500,
@@ -61,6 +63,18 @@ export const ECONOMY_CONFIG = {
     clean_fountain: 3200,
     empty_auto_litter: 3200
   } as Record<string, number>,
+
+  // Balanced Survival & Welfare Thresholds (never instant/unfair)
+  SURVIVAL: {
+    DEFAULT_OFFLINE_GRACE_HOURS: 24,
+    MILD_WARNING_THIRST: 42,
+    MILD_WARNING_HUNGER: 38,
+    ESCALATING_THIRST: 24,
+    ESCALATING_HUNGER: 20,
+    CRITICAL_HEALTH_THRESHOLD: 18,
+    CRITICAL_HOURS_BEFORE_DEATH: 36, // Sustained critical neglect hours required after grace period
+    NEWBORN_CRITICAL_HOURS_BEFORE_DEATH: 24
+  },
 
   // Purchase debounce guard (ms)
   PURCHASE_DEBOUNCE_MS: 400,

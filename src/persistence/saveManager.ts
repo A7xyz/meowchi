@@ -6,21 +6,33 @@ import {
   INITIAL_PLACED_FURNITURE
 } from '../config/catalog';
 import { ECONOMY_CONFIG } from '../config/economy';
+import { createDefaultHumanAppearance } from '../config/human';
+import { getUtcDayNumber } from '../simulation/economy';
 import { evaluateCatEmotion } from '../simulation/emotions';
 import { createInitialPlayerEnergy, reconcilePlayerEnergy } from '../simulation/energy';
 import { createInitialEquipmentState } from '../simulation/equipment';
-import { getUtcDayNumber } from '../simulation/economy';
+import { getLifeStageForAge } from '../simulation/growth';
+import { createInitialHumanState } from '../simulation/humanNav';
 import { generateRandomPersonality } from '../simulation/personality';
-import { createInitialWeightState } from '../simulation/weight';
-import { CatBreed, CatIdentity, SaveDataV3 } from '../types/game';
+import { createInitialSurvivalState, evaluateWelfareWarnings } from '../simulation/survival';
+import { classifyBodyCondition, createInitialWeightState } from '../simulation/weight';
+import {
+  CatBreed,
+  CatIdentity,
+  CatMemorialEntry,
+  HumanAppearance,
+  SaveDataV4
+} from '../types/game';
 
-export const SAVE_VERSION = 3 as const;
+export const SAVE_VERSION = 4 as const;
 const DB_NAME = 'my_little_cat_db';
 const DB_STORE = 'saves';
-const SAVE_KEY = 'primary_slot_v3';
+const SAVE_KEY = 'primary_slot_v4';
+const LEGACY_V3_KEY = 'primary_slot_v3';
 const LEGACY_V2_KEY = 'primary_slot_v2';
 const LEGACY_V1_KEY = 'primary_slot_v1';
-const LOCAL_STORAGE_KEY = 'my_little_cat_save_v3';
+const LOCAL_STORAGE_KEY = 'my_little_cat_save_v4';
+const LEGACY_LOCAL_V3_KEY = 'my_little_cat_save_v3';
 const LEGACY_LOCAL_V2_KEY = 'my_little_cat_save_v2';
 const LEGACY_LOCAL_V1_KEY = 'my_little_cat_save_v1';
 
@@ -28,18 +40,20 @@ export function createInitialSaveData(
   breed: CatBreed = 'siamese',
   options?: {
     hasAdoptedInitialCat?: boolean;
+    hasCreatedHuman?: boolean;
     customIdentity?: CatIdentity;
+    customHumanAppearance?: HumanAppearance;
     rng?: () => number;
     nowUtc?: number;
   }
-): SaveDataV3 {
+): SaveDataV4 {
   const nowUtc = options?.nowUtc ?? Date.now();
   const identity = options?.customIdentity ?? createDefaultCatIdentity(breed);
   const bed = INITIAL_PLACED_FURNITURE.find((f) => f.catalogId === 'bed_plush');
   const traits = generateRandomPersonality(options?.rng);
   const weight = createInitialWeightState(identity.breed, 2, options?.rng);
 
-  const cat: SaveDataV3['cat'] = {
+  const cat: SaveDataV4['cat'] = {
     identity,
     ageDays: 2,
     lifeStage: 'newborn',
@@ -88,12 +102,19 @@ export function createInitialSaveData(
   };
   cat.emotion = evaluateCatEmotion(cat);
 
+  const survival = createInitialSurvivalState(nowUtc);
+
   return {
     version: SAVE_VERSION,
     savedAt: nowUtc,
     lastGrowthSyncAtUtc: nowUtc,
+    hasCreatedHuman: options?.hasCreatedHuman ?? false,
     hasAdoptedInitialCat: options?.hasAdoptedInitialCat ?? false,
+    humanAppearance: options?.customHumanAppearance ?? createDefaultHumanAppearance('female'),
+    human: createInitialHumanState(),
     cat,
+    survival,
+    memorials: [],
     room: {
       foodBowlLevel: 40,
       foodBowlItemId: 'kitten_milk',
@@ -133,7 +154,9 @@ export function createInitialSaveData(
       quality: 'medium',
       soundEnabled: true,
       followCat: true,
-      reduceBiteVisuals: false
+      reduceBiteVisuals: false,
+      survivalMode: 'standard',
+      offlineGraceHours: ECONOMY_CONFIG.SURVIVAL.DEFAULT_OFFLINE_GRACE_HOURS
     },
     stats: {
       totalFeeds: 0,
@@ -172,10 +195,11 @@ function mapLegacyBreed(rawBreed: unknown): CatBreed {
 }
 
 /**
- * Validates and migrates V1, V2, and V3 save payloads cleanly into SaveDataV3.
- * Preserves existing player progress, cat identity, breed, personality, coins, and inventory.
+ * Validates and migrates V1, V2, V3, and V4 save payloads cleanly into SaveDataV4.
+ * Preserves existing player progress, cat identity, breed, personality, coins, energy,
+ * equipment, quests, and inventory without deleting anything.
  */
-export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()): SaveDataV3 | null {
+export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()): SaveDataV4 | null {
   if (!raw || typeof raw !== 'object') return null;
   const candidate = raw as Record<string, unknown>;
 
@@ -191,7 +215,11 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
   const rawIdentity = rawCat.identity as Record<string, unknown>;
   const breed = mapLegacyBreed(rawIdentity.breed);
   const savedAt = typeof candidate.savedAt === 'number' ? candidate.savedAt : nowUtc;
-  const defaults = createInitialSaveData(breed, { hasAdoptedInitialCat: true, nowUtc: savedAt });
+  const defaults = createInitialSaveData(breed, {
+    hasAdoptedInitialCat: true,
+    hasCreatedHuman: true,
+    nowUtc: savedAt
+  });
 
   const mergedNeeds = {
     ...defaults.cat.needs,
@@ -203,17 +231,23 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
       ? { ...defaults.cat.traits, ...(rawCat.traits as Record<string, number>) }
       : defaults.cat.traits;
 
-  const mergedWeight =
+  const rawAgeDays = typeof rawCat.ageDays === 'number' && Number.isFinite(rawCat.ageDays) ? rawCat.ageDays : 2;
+  const mergedWeightBase: SaveDataV4['cat']['weight'] =
     rawCat.weight && typeof rawCat.weight === 'object'
-      ? { ...defaults.cat.weight, ...(rawCat.weight as Record<string, unknown>) }
-      : createInitialWeightState(
-          breed,
-          typeof rawCat.ageDays === 'number' ? rawCat.ageDays : 2
-        );
+      ? { ...defaults.cat.weight, ...(rawCat.weight as Partial<SaveDataV4['cat']['weight']>) }
+      : createInitialWeightState(breed, rawAgeDays);
+  const mergedWeight: SaveDataV4['cat']['weight'] = {
+    ...mergedWeightBase,
+    condition: classifyBodyCondition(
+      typeof mergedWeightBase.bodyFatIndex === 'number' ? mergedWeightBase.bodyFatIndex : 0
+    )
+  };
 
-  const mergedCat: SaveDataV3['cat'] = {
+  const mergedCat: SaveDataV4['cat'] = {
     ...defaults.cat,
-    ...(rawCat as Partial<SaveDataV3['cat']>),
+    ...(rawCat as Partial<SaveDataV4['cat']>),
+    ageDays: rawAgeDays,
+    lifeStage: getLifeStageForAge(rawAgeDays),
     identity: {
       ...defaults.cat.identity,
       ...(rawIdentity as Partial<CatIdentity>),
@@ -227,7 +261,7 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
     },
     needs: mergedNeeds,
     traits: mergedTraits,
-    weight: mergedWeight as SaveDataV3['cat']['weight'],
+    weight: mergedWeight,
     position: {
       ...defaults.cat.position,
       ...((rawCat.position as Record<string, number>) ?? {})
@@ -245,10 +279,13 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
   };
   mergedCat.emotion = evaluateCatEmotion(mergedCat);
 
-  const rawFoodInv = candidate.foodInventory as Partial<SaveDataV3['foodInventory']> | undefined;
-  const rawEquip = candidate.equipment as Partial<SaveDataV3['equipment']> | undefined;
-  const rawEnergy = candidate.playerEnergy as Partial<SaveDataV3['playerEnergy']> | undefined;
+  const rawFoodInv = candidate.foodInventory as Partial<SaveDataV4['foodInventory']> | undefined;
+  const rawEquip = candidate.equipment as Partial<SaveDataV4['equipment']> | undefined;
+  const rawEnergy = candidate.playerEnergy as Partial<SaveDataV4['playerEnergy']> | undefined;
   const rawSettings = candidate.settings as Record<string, unknown> | undefined;
+  const rawHumanAppearance = candidate.humanAppearance as Partial<HumanAppearance> | undefined;
+  const rawHuman = candidate.human as Partial<SaveDataV4['human']> | undefined;
+  const rawSurvival = candidate.survival as Partial<SaveDataV4['survival']> | undefined;
 
   const migratedEnergy = rawEnergy && typeof rawEnergy.current === 'number'
     ? reconcilePlayerEnergy(
@@ -264,7 +301,7 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
       ).energy
     : createInitialPlayerEnergy(nowUtc);
 
-  const migratedSettings: SaveDataV3['settings'] = {
+  const migratedSettings: SaveDataV4['settings'] = {
     language: rawSettings?.language === 'en' ? 'en' : 'th',
     quality:
       rawSettings?.quality === 'low' || rawSettings?.quality === 'high'
@@ -274,12 +311,17 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
       typeof rawSettings?.soundEnabled === 'boolean' ? rawSettings.soundEnabled : true,
     followCat: typeof rawSettings?.followCat === 'boolean' ? rawSettings.followCat : true,
     reduceBiteVisuals:
-      typeof rawSettings?.reduceBiteVisuals === 'boolean' ? rawSettings.reduceBiteVisuals : false
+      typeof rawSettings?.reduceBiteVisuals === 'boolean' ? rawSettings.reduceBiteVisuals : false,
+    survivalMode: rawSettings?.survivalMode === 'casual' ? 'casual' : 'standard',
+    offlineGraceHours:
+      typeof rawSettings?.offlineGraceHours === 'number' && Number.isFinite(rawSettings.offlineGraceHours)
+        ? Math.max(6, Math.min(168, rawSettings.offlineGraceHours))
+        : ECONOMY_CONFIG.SURVIVAL.DEFAULT_OFFLINE_GRACE_HOURS
   };
 
   // Preserve previously unlocked achievement claim IDs so upgrading never re-awards them
   const rawAchievements = Array.isArray(candidate.achievements) && candidate.achievements.length > 0
-    ? (candidate.achievements as SaveDataV3['achievements'])
+    ? (candidate.achievements as SaveDataV4['achievements'])
     : defaults.achievements;
   const rawClaimedIds = Array.isArray(candidate.claimedRewardIds)
     ? (candidate.claimedRewardIds as string[]).filter((s) => typeof s === 'string')
@@ -289,7 +331,7 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
     if (a.unlocked) mergedClaimIds.add(`ach_${a.id}`);
   }
   const rawDailyTasks = Array.isArray(candidate.dailyTasks) && candidate.dailyTasks.length > 0
-    ? (candidate.dailyTasks as SaveDataV3['dailyTasks'])
+    ? (candidate.dailyTasks as SaveDataV4['dailyTasks'])
     : defaults.dailyTasks;
   const lastDailyResetDay =
     typeof candidate.lastDailyResetDay === 'number'
@@ -299,22 +341,59 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
     if (t.claimed) mergedClaimIds.add(`daily_${lastDailyResetDay}_${t.id}`);
   }
 
+  const mergedRoom = {
+    ...defaults.room,
+    ...((candidate.room as Partial<SaveDataV4['room']>) ?? {})
+  };
+
+  const mergedSurvival: SaveDataV4['survival'] = {
+    ...createInitialSurvivalState(savedAt, migratedSettings.offlineGraceHours),
+    ...(rawSurvival ?? {})
+  };
+  mergedSurvival.warnings = evaluateWelfareWarnings(mergedCat, mergedSurvival, mergedRoom);
+
+  const mergedHumanAppearance: HumanAppearance = {
+    ...defaults.humanAppearance,
+    ...(rawHumanAppearance ?? {})
+  };
+
+  const mergedHuman: SaveDataV4['human'] = {
+    ...defaults.human,
+    ...(rawHuman ?? {}),
+    position: {
+      ...defaults.human.position,
+      ...(rawHuman?.position ?? {})
+    },
+    velocity: { x: 0, z: 0 },
+    targetPosition: null,
+    facingTarget: null,
+    animState: 'idle',
+    carryingCat: false,
+    navStuckTimer: 0
+  };
+
   return {
     ...defaults,
-    ...(candidate as Partial<SaveDataV3>),
+    ...(candidate as Partial<SaveDataV4>),
     version: SAVE_VERSION,
     savedAt,
     lastGrowthSyncAtUtc:
       typeof candidate.lastGrowthSyncAtUtc === 'number' ? candidate.lastGrowthSyncAtUtc : savedAt,
+    // Legacy V1-V3 saves already have a cat, so let players play immediately & customize human anytime
+    hasCreatedHuman:
+      typeof candidate.hasCreatedHuman === 'boolean' ? candidate.hasCreatedHuman : true,
     hasAdoptedInitialCat:
       typeof candidate.hasAdoptedInitialCat === 'boolean'
         ? candidate.hasAdoptedInitialCat
         : true,
+    humanAppearance: mergedHumanAppearance,
+    human: mergedHuman,
     cat: mergedCat,
-    room: {
-      ...defaults.room,
-      ...((candidate.room as Partial<SaveDataV3['room']>) ?? {})
-    },
+    survival: mergedSurvival,
+    memorials: Array.isArray(candidate.memorials)
+      ? (candidate.memorials as CatMemorialEntry[]).slice(0, 30)
+      : [],
+    room: mergedRoom,
     equipment: {
       waterFountain: {
         ...defaults.equipment.waterFountain,
@@ -347,36 +426,36 @@ export function validateAndMigrateSave(raw: unknown, nowUtc: number = Date.now()
         ? (candidate.actionCooldowns as Record<string, number>)
         : {},
     minigameHistory: Array.isArray(candidate.minigameHistory)
-      ? (candidate.minigameHistory as SaveDataV3['minigameHistory']).slice(0, 50)
+      ? (candidate.minigameHistory as SaveDataV4['minigameHistory']).slice(0, 50)
       : [],
     foodInventory: {
       ...defaults.foodInventory,
       ...(rawFoodInv ?? {})
     },
     ownedAccessories: Array.isArray(candidate.ownedAccessories)
-      ? (candidate.ownedAccessories as SaveDataV3['ownedAccessories'])
+      ? (candidate.ownedAccessories as SaveDataV4['ownedAccessories'])
       : defaults.ownedAccessories,
     ownedFurniture: {
       ...defaults.ownedFurniture,
       ...((candidate.ownedFurniture as Record<string, number>) ?? {})
     },
     ownedToys: Array.isArray(candidate.ownedToys)
-      ? (candidate.ownedToys as SaveDataV3['ownedToys'])
+      ? (candidate.ownedToys as SaveDataV4['ownedToys'])
       : defaults.ownedToys,
     settings: migratedSettings,
     stats: {
       ...defaults.stats,
-      ...((candidate.stats as Partial<SaveDataV3['stats']>) ?? {})
+      ...((candidate.stats as Partial<SaveDataV4['stats']>) ?? {})
     },
     placedFurniture:
       Array.isArray(candidate.placedFurniture) && candidate.placedFurniture.length > 0
-        ? (candidate.placedFurniture as SaveDataV3['placedFurniture'])
+        ? (candidate.placedFurniture as SaveDataV4['placedFurniture'])
         : defaults.placedFurniture,
     dailyTasks: rawDailyTasks,
     lastDailyResetDay,
     achievements: rawAchievements,
     photos: Array.isArray(candidate.photos)
-      ? (candidate.photos as SaveDataV3['photos']).slice(0, 24)
+      ? (candidate.photos as SaveDataV4['photos']).slice(0, 24)
       : []
   };
 }
@@ -406,14 +485,13 @@ let writeQueue: Promise<boolean> = Promise.resolve(true);
  * Atomic serialized persistence to both localStorage (synchronous) and IndexedDB.
  * Serializing prevents race conditions or half-written state on rapid refreshes.
  */
-export function saveGameData(data: SaveDataV3): Promise<boolean> {
-  const payload: SaveDataV3 = {
+export function saveGameData(data: SaveDataV4): Promise<boolean> {
+  const payload: SaveDataV4 = {
     ...data,
     version: SAVE_VERSION,
     savedAt: Date.now()
   };
 
-  // Synchronous localStorage commit immediately so page reloads never lose latest energy/claims
   let savedSync = false;
   if (typeof localStorage !== 'undefined') {
     try {
@@ -454,14 +532,15 @@ export function saveGameData(data: SaveDataV3): Promise<boolean> {
   return writeQueue;
 }
 
-export async function loadGameData(nowUtc: number = Date.now()): Promise<SaveDataV3 | null> {
-  let idbCandidate: SaveDataV3 | null = null;
-  let lsCandidate: SaveDataV3 | null = null;
+export async function loadGameData(nowUtc: number = Date.now()): Promise<SaveDataV4 | null> {
+  let idbCandidate: SaveDataV4 | null = null;
+  let lsCandidate: SaveDataV4 | null = null;
 
   if (typeof localStorage !== 'undefined') {
     try {
       const str =
         localStorage.getItem(LOCAL_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_LOCAL_V3_KEY) ??
         localStorage.getItem(LEGACY_LOCAL_V2_KEY) ??
         localStorage.getItem(LEGACY_LOCAL_V1_KEY);
       if (str) {
@@ -478,25 +557,20 @@ export async function loadGameData(nowUtc: number = Date.now()): Promise<SaveDat
       const idbRaw = await new Promise<unknown>((resolve) => {
         const tx = db.transaction(DB_STORE, 'readonly');
         const store = tx.objectStore(DB_STORE);
-        const r3 = store.get(SAVE_KEY);
-        r3.onsuccess = () => {
-          if (r3.result) {
-            resolve(r3.result);
+        const keys = [SAVE_KEY, LEGACY_V3_KEY, LEGACY_V2_KEY, LEGACY_V1_KEY];
+        const tryNext = (idx: number) => {
+          if (idx >= keys.length) {
+            resolve(null);
             return;
           }
-          const r2 = store.get(LEGACY_V2_KEY);
-          r2.onsuccess = () => {
-            if (r2.result) {
-              resolve(r2.result);
-              return;
-            }
-            const r1 = store.get(LEGACY_V1_KEY);
-            r1.onsuccess = () => resolve(r1.result);
-            r1.onerror = () => resolve(null);
+          const req = store.get(keys[idx]);
+          req.onsuccess = () => {
+            if (req.result) resolve(req.result);
+            else tryNext(idx + 1);
           };
-          r2.onerror = () => resolve(null);
+          req.onerror = () => tryNext(idx + 1);
         };
-        r3.onerror = () => resolve(null);
+        tryNext(0);
       });
       db.close();
       idbCandidate = validateAndMigrateSave(idbRaw, nowUtc);
@@ -505,7 +579,6 @@ export async function loadGameData(nowUtc: number = Date.now()): Promise<SaveDat
     }
   }
 
-  // Pick whichever valid save has the newer savedAt timestamp (prevents stale IDB overwriting sync LS on quick reload)
   if (idbCandidate && lsCandidate) {
     return lsCandidate.savedAt >= idbCandidate.savedAt ? lsCandidate : idbCandidate;
   }
@@ -516,6 +589,7 @@ export async function clearSavedGame(): Promise<void> {
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_LOCAL_V3_KEY);
       localStorage.removeItem(LEGACY_LOCAL_V2_KEY);
       localStorage.removeItem(LEGACY_LOCAL_V1_KEY);
     } catch {
@@ -530,6 +604,7 @@ export async function clearSavedGame(): Promise<void> {
         const tx = db.transaction(DB_STORE, 'readwrite');
         const store = tx.objectStore(DB_STORE);
         store.delete(SAVE_KEY);
+        store.delete(LEGACY_V3_KEY);
         store.delete(LEGACY_V2_KEY);
         store.delete(LEGACY_V1_KEY);
         tx.oncomplete = () => resolve();

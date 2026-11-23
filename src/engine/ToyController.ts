@@ -167,7 +167,8 @@ export class ToyController {
   public update(
     dt: number,
     catPos: Vec3,
-    onCatCaughtToy: () => void
+    onCatCaughtToy: () => void,
+    humanHandWorld?: THREE.Vector3 | null
   ): { type: string; x: number; y: number; z: number } | null {
     if (!this.activeToy) return null;
 
@@ -180,7 +181,14 @@ export class ToyController {
       this.featherPos.add(this.featherVel.clone().multiplyScalar(dt));
       this.featherPos.y = Math.max(0.12, this.featherPos.y);
 
-      this.wandGroup.position.copy(this.wandTarget).add(new THREE.Vector3(0.12, 0.25, 0.12));
+      if (humanHandWorld) {
+        // Attach rod handle directly to the 3D human character's right hand (zero floating!)
+        this.wandGroup.position.copy(humanHandWorld);
+        this.wandGroup.lookAt(this.featherPos);
+        this.wandGroup.rotateX(Math.PI * 0.5);
+      } else {
+        this.wandGroup.position.copy(this.wandTarget).add(new THREE.Vector3(0.12, 0.25, 0.12));
+      }
       this.featherTip.position.copy(this.featherPos);
       this.featherTip.rotation.z = clamp(-this.featherVel.x * 0.6, -0.7, 0.7);
       this.featherTip.rotation.x = clamp(this.featherVel.z * 0.6, -0.7, 0.7);
