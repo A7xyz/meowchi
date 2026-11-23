@@ -1,0 +1,11 @@
+{
+  "name": "My Little Cat — น้องแมวตัวน้อย",
+  "short_name": "My Little Cat",
+  "description": "Realistic 3D Mobile Cat Life Simulator",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f1e8",
+  "theme_color": "#f7f1e8",
+  "icons": []
+}
