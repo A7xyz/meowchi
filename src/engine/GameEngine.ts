@@ -94,6 +94,11 @@ export class GameEngine {
     fillLight.position.set(-3.0, 2.6, 3.2);
     this.scene.add(fillLight);
 
+    // Warm golden backlight rim enhancing volumetric cat fur halo & silky Chibi hair sheen
+    const furRimLight = new THREE.DirectionalLight('#ffe4bc', 0.55);
+    furRimLight.position.set(-1.6, 2.2, -3.2);
+    this.scene.add(furRimLight);
+
     this.cameraCtrl = new CameraController(width / height);
     this.roomBuilder = new RoomBuilder();
     this.scene.add(this.roomBuilder.roomGroup);
@@ -113,9 +118,9 @@ export class GameEngine {
 
     this.cameraCtrl.focusOn(
       (initState.cat.position.x + initState.human.position.x) * 0.5,
-      0.55,
+      0.38,
       (initState.cat.position.z + initState.human.position.z) * 0.5,
-      2.65
+      2.18
     );
     this.applyQuality(initState.settings.quality);
 
@@ -525,7 +530,7 @@ export class GameEngine {
       ) {
         lookTarget = new THREE.Vector3(
           latest.human.position.x,
-          latest.human.position.y + 0.95,
+          latest.human.position.y + 0.68,
           latest.human.position.z
         );
       }

@@ -20,18 +20,18 @@ export function HumanPreview3D({ appearance, focusFace = false }: HumanPreview3D
   appearanceRef.current = appearance;
 
   const [zoomLevel, setZoomLevel] = useState<'full' | 'close'>(focusFace ? 'close' : 'full');
-  const zoomTargetRef = useRef(focusFace ? 1.15 : 2.55);
-  const lookYTargetRef = useRef(focusFace ? 1.48 : 0.96);
+  const zoomTargetRef = useRef(focusFace ? 0.92 : 1.68);
+  const lookYTargetRef = useRef(focusFace ? 0.78 : 0.52);
 
   useEffect(() => {
     if (focusFace) {
       setZoomLevel('close');
-      zoomTargetRef.current = 1.12;
-      lookYTargetRef.current = 1.48;
+      zoomTargetRef.current = 0.92;
+      lookYTargetRef.current = 0.78;
     } else {
       setZoomLevel('full');
-      zoomTargetRef.current = 2.55;
-      lookYTargetRef.current = 0.96;
+      zoomTargetRef.current = 1.68;
+      lookYTargetRef.current = 0.52;
     }
   }, [focusFace]);
 
@@ -96,8 +96,8 @@ export function HumanPreview3D({ appearance, focusFace = false }: HumanPreview3D
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      zoomTargetRef.current = clamp(zoomTargetRef.current + e.deltaY * 0.002, 0.95, 3.1);
-      lookYTargetRef.current = zoomTargetRef.current < 1.5 ? 1.48 : 0.96;
+      zoomTargetRef.current = clamp(zoomTargetRef.current + e.deltaY * 0.0018, 0.75, 2.3);
+      lookYTargetRef.current = zoomTargetRef.current < 1.25 ? 0.78 : 0.52;
     };
 
     renderer.domElement.addEventListener('pointerdown', onDown);
@@ -146,12 +146,12 @@ export function HumanPreview3D({ appearance, focusFace = false }: HumanPreview3D
   const toggleZoom = () => {
     if (zoomLevel === 'full') {
       setZoomLevel('close');
-      zoomTargetRef.current = 1.12;
-      lookYTargetRef.current = 1.48;
+      zoomTargetRef.current = 0.92;
+      lookYTargetRef.current = 0.78;
     } else {
       setZoomLevel('full');
-      zoomTargetRef.current = 2.55;
-      lookYTargetRef.current = 0.96;
+      zoomTargetRef.current = 1.68;
+      lookYTargetRef.current = 0.52;
     }
   };
 

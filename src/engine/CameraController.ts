@@ -15,15 +15,15 @@ import { CareActionType } from '../types/game';
  */
 export class CameraController {
   public readonly camera: THREE.PerspectiveCamera;
-  public readonly target = new THREE.Vector3(-0.35, 0.52, 0.35);
-  private desiredTarget = new THREE.Vector3(-0.35, 0.52, 0.35);
+  public readonly target = new THREE.Vector3(-0.35, 0.38, 0.35);
+  private desiredTarget = new THREE.Vector3(-0.35, 0.38, 0.35);
 
   private yaw = -0.42;
   private desiredYaw = -0.42;
-  private pitch = 0.34;
-  private desiredPitch = 0.34;
-  private distance = 2.65;
-  private desiredDistance = 2.65;
+  private pitch = 0.32;
+  private desiredPitch = 0.32;
+  private distance = 2.18;
+  private desiredDistance = 2.18;
   private savedPreInteractionDistance: number | null = null;
   private wasInInteraction = false;
 
@@ -75,21 +75,21 @@ export class CameraController {
     const midZ = lerp(humanPos.z, catPos.z, 0.48);
     const separation = Math.hypot(humanPos.x - catPos.x, humanPos.z - catPos.z);
 
-    let targetY = 0.56;
-    let dist = 2.45 + Math.min(0.85, separation * 0.45);
+    let targetY = 0.38;
+    let dist = 1.92 + Math.min(0.75, separation * 0.42);
 
     if (actionType === 'pet' || actionType === 'brush') {
-      targetY = 0.46;
-      dist = clamp(2.15 + separation * 0.35, 2.05, 2.85);
+      targetY = 0.34;
+      dist = clamp(1.68 + separation * 0.32, 1.62, 2.25);
     } else if (actionType === 'pickup') {
-      targetY = 0.78;
-      dist = 2.55;
+      targetY = 0.48;
+      dist = 1.9;
     } else if (actionType === 'feed' || actionType === 'water' || actionType === 'refill_fountain') {
-      targetY = 0.54;
-      dist = clamp(2.35 + separation * 0.3, 2.2, 3.0);
+      targetY = 0.38;
+      dist = clamp(1.85 + separation * 0.28, 1.75, 2.45);
     } else if (actionType === 'play_toy') {
-      targetY = 0.62;
-      dist = clamp(2.65 + separation * 0.4, 2.5, 3.35);
+      targetY = 0.44;
+      dist = clamp(2.15 + separation * 0.38, 2.0, 2.8);
     }
 
     this.desiredTarget.set(
@@ -97,8 +97,8 @@ export class CameraController {
       targetY,
       clamp(midZ, -ROOM_HALF_DEPTH + 0.45, ROOM_HALF_DEPTH - 0.45)
     );
-    this.desiredDistance = clamp(dist, 1.95, 3.45);
-    this.desiredPitch = lerp(this.desiredPitch, 0.3, 0.06);
+    this.desiredDistance = clamp(dist, 1.55, 2.95);
+    this.desiredPitch = lerp(this.desiredPitch, 0.28, 0.06);
   }
 
   public endInteractionFraming(): void {

@@ -139,14 +139,14 @@ export function computeActionInteractionSpots(
     return { targetPoint: backSpot, alignTarget: catPt };
   }
 
-  // Direct Cat Interactions (Pet, Brush, Pickup, Newborn Bottle Feed)
+  // Direct Cat Interactions (Pet, Brush, Pickup, Newborn Bottle Feed — tuned for Chibi arm reach!)
   if (
     type === 'pet' ||
     type === 'brush' ||
     type === 'pickup' ||
     (type === 'feed' && options?.foodId === 'kitten_milk')
   ) {
-    const dist = type === 'pickup' ? 0.48 : 0.56;
+    const dist = type === 'pickup' ? 0.4 : 0.46;
     return {
       targetPoint: findBestApproachSpot(catPt, humanPos, dist, furniture),
       alignTarget: catPt
@@ -156,7 +156,7 @@ export function computeActionInteractionSpots(
   // Play with Cat: stand at a lively comfortable distance so wand/toy swings naturally
   if (type === 'play_toy') {
     return {
-      targetPoint: findBestApproachSpot(catPt, humanPos, 0.96, furniture),
+      targetPoint: findBestApproachSpot(catPt, humanPos, 0.86, furniture),
       alignTarget: catPt
     };
   }
@@ -169,7 +169,7 @@ export function computeActionInteractionSpots(
       const furnRadius = item ? Math.max(item.width, item.depth) * 0.5 : 0.25;
       const anchor: Vec2 = { x: furn.x, z: furn.z };
       return {
-        targetPoint: findBestApproachSpot(anchor, humanPos, furnRadius + 0.44, furniture),
+        targetPoint: findBestApproachSpot(anchor, humanPos, furnRadius + 0.36, furniture),
         alignTarget: anchor
       };
     }
