@@ -1,13 +1,21 @@
 import { Camera, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActionDrawer } from './components/ActionDrawer';
 import { AdoptionFlow } from './components/AdoptionFlow';
 import { BottomNav } from './components/BottomNav';
 import { DecorateBar } from './components/DecorateBar';
+import { CatToyChallengeGame } from './components/minigames/CatToyChallengeGame';
 import { CleanRoomGame } from './components/minigames/CleanRoomGame';
+import { DeliveryGame } from './components/minigames/DeliveryGame';
 import { FishingGame } from './components/minigames/FishingGame';
 import { MatchingPuzzleGame } from './components/minigames/MatchingPuzzleGame';
-import { AlbumModal, CatProfileModal, SettingsModal, TasksModal } from './components/Modals';
+import {
+  AlbumModal,
+  CatProfileModal,
+  EquipmentModal,
+  SettingsModal,
+  TasksModal
+} from './components/Modals';
 import { TopBar } from './components/TopBar';
 import { GameEngine } from './engine/GameEngine';
 import { UI_TEXT } from './i18n/translations';
@@ -23,15 +31,27 @@ export function App() {
   const savePhoto = useGameStore((s) => s.savePhoto);
   const activeToy = useGameStore((s) => s.activeToy);
   const activateToy = useGameStore((s) => s.activateToy);
-  const activeMinigame = useGameStore((s) => s.activeMinigame);
+  const activeMinigameSession = useGameStore((s) => s.activeMinigameSession);
   const decorateMode = useGameStore((s) => s.decorateMode);
   const toast = useGameStore((s) => s.toast);
+  const biteFeedback = useGameStore((s) => s.biteFeedback);
+  const reduceBiteVisuals = useGameStore((s) => s.settings.reduceBiteVisuals);
   const lang = useGameStore((s) => s.settings.language);
   const t = UI_TEXT[lang];
+
+  const [showBiteOverlay, setShowBiteOverlay] = useState(false);
 
   useEffect(() => {
     hydrateFromStorage();
   }, [hydrateFromStorage]);
+
+  useEffect(() => {
+    if (biteFeedback.seq <= 0) return;
+    setShowBiteOverlay(true);
+    // Strict maximum display duration: 0.5 seconds (500ms), non-obstructive smooth fade!
+    const id = setTimeout(() => setShowBiteOverlay(false), 500);
+    return () => clearTimeout(id);
+  }, [biteFeedback.seq]);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -53,11 +73,21 @@ export function App() {
     engineRef.current?.focusOnCat();
   };
 
+  const activeGameId = activeMinigameSession?.gameId ?? null;
+
   return (
     <div className="app-shell">
       <main className="phone-frame">
         {/* Live 3D Three.js Canvas */}
         <div ref={mountRef} className="canvas-viewport" />
+
+        {/* Subtle 0.5s Non-Obstructive Defensive Bite Screen-Edge Feedback */}
+        {showBiteOverlay && (
+          <div
+            className={`bite-edge-overlay ${reduceBiteVisuals ? 'warning-flash' : 'subtle-tint'}`}
+            aria-hidden="true"
+          />
+        )}
 
         {/* Photo Mode Minimal HUD */}
         {photoMode ? (
@@ -91,7 +121,7 @@ export function App() {
         ) : (
           /* Clean Meowchi Gameplay HUD (NO hunger/fullness bars!) */
           <div className="ui-layer">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <TopBar />
               {toast && (
                 <div className={`toast-banner toast-${toast.tone}`} role="status">
@@ -123,7 +153,7 @@ export function App() {
               )}
 
               {!activeToy && !decorateMode && (
-                <div className="hint-bar" style={{ opacity: 0.8 }}>
+                <div className="hint-bar" style={{ opacity: 0.82 }}>
                   <span>{t.tapCatHint}</span>
                 </div>
               )}
@@ -140,16 +170,19 @@ export function App() {
           </div>
         )}
 
-        {/* Full-screen Playable Minigames */}
-        {activeMinigame === 'fishing' && <FishingGame />}
-        {activeMinigame === 'matching' && <MatchingPuzzleGame />}
-        {activeMinigame === 'clean_room' && <CleanRoomGame />}
+        {/* Full-screen 60-Second Playable Touch Minigames (5 games) */}
+        {activeGameId === 'fishing' && <FishingGame />}
+        {activeGameId === 'matching' && <MatchingPuzzleGame />}
+        {activeGameId === 'toy_challenge' && <CatToyChallengeGame />}
+        {activeGameId === 'delivery' && <DeliveryGame />}
+        {activeGameId === 'clean_room' && <CleanRoomGame />}
 
         {/* First-Run Breed Selection & 3D Kitten Customization */}
         <AdoptionFlow />
 
         {/* Modals */}
         <CatProfileModal />
+        <EquipmentModal />
         <SettingsModal />
         <AlbumModal />
         <TasksModal />

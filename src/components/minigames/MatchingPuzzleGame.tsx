@@ -1,6 +1,7 @@
 import { Coins, Grid2x2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { soundManager } from '../../audio/SoundManager';
+import { ECONOMY_CONFIG, evaluateMinigameReward } from '../../config/economy';
 import { useGameStore } from '../../store/useGameStore';
 
 interface Tile {
@@ -29,31 +30,35 @@ function buildDeck(pairCount: number): Tile[] {
 
 export function MatchingPuzzleGame() {
   const lang = useGameStore((s) => s.settings.language);
+  const session = useGameStore((s) => s.activeMinigameSession);
   const completeMinigame = useGameStore((s) => s.completeMinigame);
-  const openMinigame = useGameStore((s) => s.openMinigame);
+  const cancelMinigame = useGameStore((s) => s.cancelMinigame);
 
-  const [level, setLevel] = useState(1);
-  const pairCount = level === 1 ? 6 : level === 2 ? 8 : 10;
-  const cols = level === 1 ? 3 : 4;
+  const duration = session?.durationSec ?? ECONOMY_CONFIG.MINIGAME_DURATION_SECONDS;
+  const [round, setRound] = useState(1);
+  const pairCount = round === 1 ? 6 : 8;
+  const cols = round === 1 ? 3 : 4;
 
   const [tiles, setTiles] = useState<Tile[]>(() => buildDeck(6));
   const [selected, setSelected] = useState<number[]>([]);
-  const [moves, setMoves] = useState(0);
   const [combo, setCombo] = useState(0);
   const [score, setScore] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(duration);
   const [locked, setLocked] = useState(false);
+  const [claimed, setClaimed] = useState(false);
 
-  const allMatched = tiles.every((t) => t.matched);
+  const finished = timeLeft <= 0;
 
   useEffect(() => {
-    if (allMatched) return;
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    if (finished) return;
+    const id = setInterval(() => {
+      setTimeLeft((t) => Math.max(0, t - 1));
+    }, 1000);
     return () => clearInterval(id);
-  }, [allMatched, level]);
+  }, [finished]);
 
   const handleFlip = (uid: number) => {
-    if (locked) return;
+    if (locked || finished) return;
     const target = tiles.find((t) => t.uid === uid);
     if (!target || target.matched || target.flipped) return;
 
@@ -64,7 +69,6 @@ export function MatchingPuzzleGame() {
     setSelected(nextSel);
 
     if (nextSel.length === 2) {
-      setMoves((m) => m + 1);
       const [aId, bId] = nextSel;
       const a = nextTiles.find((t) => t.uid === aId)!;
       const b = nextTiles.find((t) => t.uid === bId)!;
@@ -72,12 +76,25 @@ export function MatchingPuzzleGame() {
       if (a.symbol === b.symbol) {
         const nextCombo = combo + 1;
         setCombo(nextCombo);
-        setScore((s) => s + 15 + nextCombo * 5);
-        soundManager.playSoftChime(780);
-        setTiles((prev) =>
-          prev.map((t) => (t.uid === aId || t.uid === bId ? { ...t, matched: true } : t))
+        const updatedTiles = nextTiles.map((t) =>
+          t.uid === aId || t.uid === bId ? { ...t, matched: true } : t
         );
+        const boardCleared = updatedTiles.every((t) => t.matched);
+        const gain = 18 + nextCombo * 6 + (boardCleared ? 40 : 0);
+        setScore((s) => s + gain);
+        soundManager.playSoftChime(boardCleared ? 880 : 780);
+        setTiles(updatedTiles);
         setSelected([]);
+
+        if (boardCleared) {
+          setLocked(true);
+          setTimeout(() => {
+            const nextRound = round + 1;
+            setRound(nextRound);
+            setTiles(buildDeck(nextRound === 1 ? 6 : 8));
+            setLocked(false);
+          }, 420);
+        }
       } else {
         setCombo(0);
         setLocked(true);
@@ -87,22 +104,19 @@ export function MatchingPuzzleGame() {
           );
           setSelected([]);
           setLocked(false);
-        }, 620);
+        }, 520);
       }
     }
   };
 
-  const startNextLevel = () => {
-    const nextLvl = Math.min(3, level + 1);
-    const nextPairs = nextLvl === 1 ? 6 : nextLvl === 2 ? 8 : 10;
-    setLevel(nextLvl);
-    setTiles(buildDeck(nextPairs));
-    setSelected([]);
-    setCombo(0);
-  };
+  if (!session) return null;
+  const reward = evaluateMinigameReward('matching', score);
 
-  const timeBonus = Math.max(0, 30 - elapsed);
-  const totalCoins = Math.min(68, 22 + level * 8 + Math.round((score + timeBonus) * 0.14));
+  const handleCollect = () => {
+    if (claimed || !finished) return;
+    setClaimed(true);
+    completeMinigame(session.sessionId, score);
+  };
 
   return (
     <div className="minigame-overlay ui-interactive">
@@ -110,20 +124,25 @@ export function MatchingPuzzleGame() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 15 }}>
           <Grid2x2 size={18} color="#c87a56" />
           <span>
-            {lang === 'th' ? `จับคู่ของแมว • ด่าน ${level}` : `Cat Matching • Lv.${level}`}
+            {lang === 'th' ? `จับคู่ของแมว • รอบ ${round}` : `Cat Matching • Round ${round}`}
           </span>
         </div>
-        <button type="button" className="drawer-close" onClick={() => openMinigame(null)}>
+        <button
+          type="button"
+          className="drawer-close"
+          onClick={() => cancelMinigame()}
+          aria-label="Cancel minigame"
+        >
           <X size={16} />
         </button>
       </div>
 
       <div className="row-between" style={{ fontSize: 11.5, fontWeight: 700 }}>
         <span className="badge warm">
-          {lang === 'th' ? `คะแนน ${score}` : `Score ${score}`}
+          {lang === 'th' ? `เวลา ${timeLeft} วิ` : `Time ${timeLeft}s`}
         </span>
-        <span className="badge">
-          {lang === 'th' ? `เปิด ${moves} ครั้ง • ${elapsed} วิ` : `Moves ${moves} • ${elapsed}s`}
+        <span className="badge sage">
+          {lang === 'th' ? `คะแนน ${score} • คอมโบ x${combo}` : `Score ${score} • Combo x${combo}`}
         </span>
       </div>
 
@@ -141,8 +160,9 @@ export function MatchingPuzzleGame() {
           const revealed = tile.flipped || tile.matched;
           return (
             <button
-              key={tile.uid}
+              key={`${round}_${tile.uid}`}
               type="button"
+              disabled={finished}
               onClick={() => handleFlip(tile.uid)}
               style={{
                 aspectRatio: '1 / 1',
@@ -157,8 +177,8 @@ export function MatchingPuzzleGame() {
                   : revealed
                     ? '#fffdf9'
                     : 'linear-gradient(135deg, #e5d5c3, #d7c0a9)',
-                fontSize: level === 3 ? 22 : 28,
-                cursor: 'pointer',
+                fontSize: pairCount >= 8 ? 24 : 28,
+                cursor: finished ? 'default' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -172,32 +192,31 @@ export function MatchingPuzzleGame() {
         })}
       </div>
 
-      {allMatched ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {level < 3 && (
-            <button type="button" className="btn-secondary" onClick={startNextLevel}>
-              {lang === 'th'
-                ? `เล่นด่าน ${level + 1} ต่อเพื่อสะสมเหรียญเพิ่ม!`
-                : `Play Level ${level + 1} for Bigger Reward!`}
-            </button>
-          )}
+      {finished ? (
+        <div className="section-box" style={{ gap: 8, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {lang === 'th'
+              ? `หมดเวลา! คะแนน ${score} (${reward.tier.toUpperCase()})`
+              : `Time's Up! Score ${score} (${reward.tier.toUpperCase()})`}
+          </div>
           <button
             type="button"
             className="btn-primary"
+            disabled={claimed}
             style={{ width: '100%', padding: '12px', fontSize: 14 }}
-            onClick={() => completeMinigame('matching', totalCoins, score + pairCount * 10)}
+            onClick={handleCollect}
           >
             <Coins size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             {lang === 'th'
-              ? `รับรางวัล +${totalCoins} เหรียญ และกลับบ้าน`
-              : `Collect +${totalCoins} Coins & Return`}
+              ? `รับรางวัล +${reward.coins} เหรียญ และกลับบ้าน`
+              : `Collect +${reward.coins} Coins & Return`}
           </button>
         </div>
       ) : (
-        <div style={{ fontSize: 11, color: '#756355', textAlign: 'center' }}>
+        <div style={{ fontSize: 10.5, color: '#756355', textAlign: 'center' }}>
           {lang === 'th'
-            ? 'จับคู่การ์ดเหมือนกันให้ครบเพื่อรับเหรียญซื้ออาหารน้องแมว!'
-            : 'Match all pairs to earn Coins for cat food and treats!'}
+            ? 'จับคู่การ์ดให้ได้มากที่สุดใน 60 วินาที เพื่อรับรางวัล 15–45 เหรียญ'
+            : 'Match as many pairs as you can in 60s to earn 15–45 Coins!'}
         </div>
       )}
     </div>

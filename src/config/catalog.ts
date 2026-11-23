@@ -15,6 +15,7 @@ import {
   getBreedDefinition,
   resolveCoatHexColors
 } from './breeds';
+import { ECONOMY_CONFIG } from './economy';
 
 export const ROOM_HALF_WIDTH = 2.8;
 export const ROOM_HALF_DEPTH = 2.6;
@@ -25,10 +26,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'kitten_milk',
     nameTh: 'นมแพะสำหรับลูกแมว',
     nameEn: 'Kitten Milk Formula',
-    descTh: 'นมสูตรอ่อนโยนสำหรับลูกแมวแรกเกิดถึงวัยหย่านม (1 แพ็ก = 3 มื้อ)',
-    descEn: 'Gentle warm formula safe from day 0 newborn stage (pack of 3).',
-    priceCoins: 15,
-    packSize: 3,
+    descTh: 'นมสูตรอ่อนโยนสำหรับลูกแมวแรกเกิดถึงวัยหย่านม (5 มื้อ)',
+    descEn: 'Gentle warm formula safe from day 0 newborn stage (5 servings).',
+    priceCoins: ECONOMY_CONFIG.PRICES.kitten_milk.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.kitten_milk.packSize,
     minAgeDays: 0,
     satietyGain: 34,
     hydrationGain: 22,
@@ -40,10 +41,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'kitten_wet',
     nameTh: 'อาหารเปียกลูกแมว',
     nameEn: 'Kitten Wet Food',
-    descTh: 'เนื้อมูสนุ่มโปรตีนสูง เหมาะกับลูกแมวอายุ 3 สัปดาห์ขึ้นไป (3 ซอง)',
-    descEn: 'Soft nutrient-rich mousse for kittens 3+ weeks old (pack of 3).',
-    priceCoins: 20,
-    packSize: 3,
+    descTh: 'เนื้อมูสนุ่มโปรตีนสูง เหมาะกับลูกแมวอายุ 3 สัปดาห์ขึ้นไป (1 มื้อ)',
+    descEn: 'Soft nutrient-rich mousse for kittens 3+ weeks old (1 serving).',
+    priceCoins: ECONOMY_CONFIG.PRICES.kitten_wet.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.kitten_wet.packSize,
     minAgeDays: 21,
     satietyGain: 38,
     hydrationGain: 14,
@@ -55,10 +56,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'kitten_dry',
     nameTh: 'อาหารเม็ดลูกแมว',
     nameEn: 'Kitten Dry Food',
-    descTh: 'เม็ดเล็กเคี้ยวง่ายเสริมสร้างกระดูก สำหรับอายุ 7 สัปดาห์ขึ้นไป (4 มื้อ)',
-    descEn: 'Small crunchy kibble for growing teeth, 7+ weeks (pack of 4).',
-    priceCoins: 12,
-    packSize: 4,
+    descTh: 'เม็ดเล็กเคี้ยวง่ายเสริมสร้างกระดูก สำหรับอายุ 7 สัปดาห์ขึ้นไป (5 มื้อ)',
+    descEn: 'Small crunchy kibble for growing teeth, 7+ weeks (5 servings).',
+    priceCoins: ECONOMY_CONFIG.PRICES.kitten_dry.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.kitten_dry.packSize,
     minAgeDays: 49,
     satietyGain: 32,
     hydrationGain: -4,
@@ -70,10 +71,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'adult_dry',
     nameTh: 'อาหารเม็ดแมวโต',
     nameEn: 'Adult Dry Food',
-    descTh: 'สูตรสมดุลพลังงานสำหรับแมวรุ่นและแมวโต (4 มื้อ)',
-    descEn: 'Balanced daily dry kibble for young & adult cats (pack of 4).',
-    priceCoins: 10,
-    packSize: 4,
+    descTh: 'สูตรสมดุลพลังงานสำหรับแมวรุ่นและแมวโต (5 มื้อ)',
+    descEn: 'Balanced daily dry kibble for young & adult cats (5 servings).',
+    priceCoins: ECONOMY_CONFIG.PRICES.adult_dry.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.adult_dry.packSize,
     minAgeDays: 90,
     satietyGain: 34,
     hydrationGain: -5,
@@ -85,10 +86,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'adult_wet',
     nameTh: 'อาหารเปียกแมวโต',
     nameEn: 'Adult Wet Food',
-    descTh: 'เนื้อปลาทูน่าในเยลลี่ หอมอร่อยช่วยเพิ่มน้ำ (3 ซอง)',
-    descEn: 'Savory fish chunks in jelly for hydration & coat health (pack of 3).',
-    priceCoins: 22,
-    packSize: 3,
+    descTh: 'เนื้อปลาทูน่าในเยลลี่ หอมอร่อยช่วยเพิ่มน้ำ (1 มื้อ)',
+    descEn: 'Savory fish chunks in jelly for hydration & coat health (1 serving).',
+    priceCoins: ECONOMY_CONFIG.PRICES.adult_wet.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.adult_wet.packSize,
     minAgeDays: 90,
     satietyGain: 38,
     hydrationGain: 16,
@@ -100,10 +101,10 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'premium_wet',
     nameTh: 'อาหารเปียกพรีเมียมแซลมอน',
     nameEn: 'Premium Salmon Wet Food',
-    descTh: 'แซลมอนเกรดโฮลิสติก บำรุงขนฟูเงางามและสุขภาพดี (3 ซอง)',
-    descEn: 'Holistic salmon recipe for glossy coat and deep joy (pack of 3).',
-    priceCoins: 40,
-    packSize: 3,
+    descTh: 'แซลมอนเกรดโฮลิสติก บำรุงขนฟูเงางามและสุขภาพดี (1 มื้อ)',
+    descEn: 'Holistic salmon recipe for glossy coat and deep joy (1 serving).',
+    priceCoins: ECONOMY_CONFIG.PRICES.premium_wet.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.premium_wet.packSize,
     minAgeDays: 57,
     satietyGain: 44,
     hydrationGain: 20,
@@ -115,14 +116,14 @@ export const FOOD_CATALOG: FoodCatalogItem[] = [
     id: 'cat_treat',
     nameTh: 'ขนมแมวเลียครีมมี่',
     nameEn: 'Creamy Cat Treats',
-    descTh: 'ขนมแสนอร่อยเพิ่มความผูกพัน (ระวังให้มากเกินไปจะอ้วนง่าย!) (4 ซอง)',
-    descEn: 'Tasty bonding snack—offer in moderation to keep healthy weight (pack of 4).',
-    priceCoins: 15,
-    packSize: 4,
+    descTh: 'ขนมแสนอร่อยเพิ่มความผูกพัน (ระวังให้มากเกินไปจะอ้วนง่าย!) (3 ซอง)',
+    descEn: 'Tasty bonding snack—offer in moderation to keep healthy weight (3 servings).',
+    priceCoins: ECONOMY_CONFIG.PRICES.cat_treat.priceCoins,
+    packSize: ECONOMY_CONFIG.PRICES.cat_treat.packSize,
     minAgeDays: 21,
     satietyGain: 14,
     hydrationGain: 4,
-    calories: 28, // Calorie-dense treat!
+    calories: 28,
     happinessGain: 22,
     bondGain: 20
   }
@@ -204,6 +205,24 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
     accentColor: '#c49b6c',
     unlockLevel: 1
   },
+  // ADVANCED AUTOMATIC EQUIPMENT — SMART CAT BED (400 Coins)
+  {
+    id: 'smart_cat_bed',
+    category: 'bed',
+    nameTh: 'เตียงแมวอัจฉริยะอุ่นสบาย',
+    nameEn: 'Smart Cat Bed',
+    descTh: 'เตียงคุมอุณหภูมิอุ่นสบาย น้องแมวชอบมานอนหลับและคลายเครียดได้เร็วขึ้น',
+    descEn: 'Temperature-balanced smart bed with natural comfort boost for deeper naps.',
+    priceCoins: ECONOMY_CONFIG.PRICES.smart_cat_bed,
+    width: 0.8,
+    depth: 0.78,
+    height: 0.34,
+    walkable: false,
+    jumpableHeight: 0.18,
+    accentColor: '#d9c5b2',
+    unlockLevel: 1,
+    isAutoEquipment: true
+  },
   {
     id: 'food_bowl_ceramic',
     category: 'food_bowl',
@@ -218,6 +237,23 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
     walkable: false,
     accentColor: '#df8c6f',
     unlockLevel: 1
+  },
+  // ADVANCED AUTOMATIC EQUIPMENT — AUTOMATIC FOOD FEEDER (650 Coins)
+  {
+    id: 'auto_food_feeder',
+    category: 'food_bowl',
+    nameTh: 'เครื่องให้อาหารแมวอัตโนมัติ',
+    nameEn: 'Automatic Food Feeder',
+    descTh: 'ตั้งเวลาและปริมาณอาหารได้ เติมอาหารจากคลังเพื่อจ่ายมื้ออัตโนมัติ (ไม่เสกอาหารฟรี)',
+    descEn: 'Scheduled hopper feeder with adjustable portions. Uses food loaded from your inventory.',
+    priceCoins: ECONOMY_CONFIG.PRICES.auto_food_feeder,
+    width: 0.44,
+    depth: 0.5,
+    height: 0.56,
+    walkable: false,
+    accentColor: '#eae3d9',
+    unlockLevel: 1,
+    isAutoEquipment: true
   },
   {
     id: 'water_bowl_ceramic',
@@ -234,6 +270,23 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
     accentColor: '#8ab4c9',
     unlockLevel: 1
   },
+  // ADVANCED AUTOMATIC EQUIPMENT — CAT WATER FOUNTAIN (350 Coins)
+  {
+    id: 'auto_water_fountain',
+    category: 'water_bowl',
+    nameTh: 'น้ำพุแมวกรองน้ำอัตโนมัติ',
+    nameEn: 'Cat Water Fountain',
+    descTh: 'น้ำพุไหลเวียนสดชื่น มีระบบติดตามระดับน้ำและทำความสะอาด น้องแมวเดินมาดื่มเองได้',
+    descEn: 'Animated flowing fountain with water level tracking, refill & cleaning interactions.',
+    priceCoins: ECONOMY_CONFIG.PRICES.auto_water_fountain,
+    width: 0.42,
+    depth: 0.42,
+    height: 0.28,
+    walkable: false,
+    accentColor: '#7eb7d1',
+    unlockLevel: 1,
+    isAutoEquipment: true
+  },
   {
     id: 'litter_box_cozy',
     category: 'litter_box',
@@ -248,6 +301,40 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
     walkable: false,
     accentColor: '#b7b0a5',
     unlockLevel: 1
+  },
+  // ADVANCED AUTOMATIC EQUIPMENT — AUTOMATIC LITTER BOX (900 Coins)
+  {
+    id: 'auto_litter_box',
+    category: 'litter_box',
+    nameTh: 'ห้องน้ำแมวอัตโนมัติ',
+    nameEn: 'Automatic Litter Box',
+    descTh: 'หมุนเก็บทรายอัตโนมัติเมื่อแมวออกแล้วเท่านั้น พร้อมเซนเซอร์ปลอดภัยสำหรับลูกแมว',
+    descEn: 'Self-cleaning drum activates only after cat exits, with kitten safety lock & waste bin.',
+    priceCoins: ECONOMY_CONFIG.PRICES.auto_litter_box,
+    width: 0.72,
+    depth: 0.66,
+    height: 0.66,
+    walkable: false,
+    accentColor: '#e7e2da',
+    unlockLevel: 1,
+    isAutoEquipment: true
+  },
+  // ADVANCED AUTOMATIC EQUIPMENT — AUTOMATIC CAT TOY (500 Coins)
+  {
+    id: 'auto_cat_toy',
+    category: 'toy',
+    nameTh: 'ของเล่นแมวอัตโนมัติหมุนได้',
+    nameEn: 'Automatic Cat Toy',
+    descTh: 'ก้านขนนกหมุนล่อแมวอัตโนมัติพร้อมคูลดาวน์ ช่วยให้แมวขี้เล่นได้ออกกำลังกาย',
+    descEn: 'Motorized spinning feather teaser with cooldowns that keeps playful cats active.',
+    priceCoins: ECONOMY_CONFIG.PRICES.auto_cat_toy,
+    width: 0.44,
+    depth: 0.44,
+    height: 0.48,
+    walkable: false,
+    accentColor: '#d98c64',
+    unlockLevel: 1,
+    isAutoEquipment: true
   },
   {
     id: 'scratching_post_sisal',
@@ -286,8 +373,8 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
     category: 'toy',
     nameTh: 'กล่องกระดาษแสนรัก',
     nameEn: 'Cardboard Box',
-    descTh: 'พื้นที่ปลอดภัยสำหรับหลบซ่อนเมื่อน้องแมวรู้สึกตื่นกลัว',
-    descEn: 'Safe cozy hiding spot that helps shy or stressed cats calm down.',
+    descTh: 'พื้นที่ปลอดภัยสำหรับหลบซ่อนและแอบซุ่มกระโจนเล่น',
+    descEn: 'Safe cozy hiding spot for shy cats and playful box ambushes.',
     priceCoins: 0,
     width: 0.54,
     depth: 0.46,
@@ -407,8 +494,8 @@ export const TOY_CATALOG: ToyCatalogItem[] = [
     id: 'feather_wand',
     nameTh: 'ไม้ตกแมวขนนก',
     nameEn: 'Feather Wand',
-    descTh: 'ลากนิ้วบนจอเพื่อแกว่งขนนกให้น้องแมวหมอบและตะครุบ',
-    descEn: 'Drag across the screen to wave the feather and trigger pouncing.',
+    descTh: 'ลากนิ้วบนจอเพื่อถือไม้ตกแมวแกว่งขนนกให้น้องแมวหมอบและตะครุบ',
+    descEn: 'Drag across the screen to wave the feather wand by hand and trigger pouncing.',
     priceCoins: 0,
     minStage: 'baby_kitten'
   },
@@ -443,7 +530,7 @@ export const TOY_CATALOG: ToyCatalogItem[] = [
     id: 'cardboard_box',
     nameTh: 'กล่องกระดาษ',
     nameEn: 'Cardboard Box',
-    descTh: 'พื้นที่หลบซ่อนที่ปลอดภัยสำหรับแมวขี้อายหรือตื่นกลัว',
+    descTh: 'พื้นที่หลบซ่อนที่ปลอดภัยสำหรับแมวขี้อายและซุ่มเล่น',
     descEn: 'Safe retreat for shy, curious, or playful kittens.',
     priceCoins: 0,
     minStage: 'baby_kitten'
@@ -468,9 +555,9 @@ export function getCatalogItem(catalogId: string): FurnitureCatalogItem | undefi
 
 export function createStarterFoodInventory(): Record<FoodItemId, number> {
   return {
-    kitten_milk: 5,
+    kitten_milk: 6,
     kitten_wet: 2,
-    kitten_dry: 0,
+    kitten_dry: 5,
     adult_dry: 0,
     adult_wet: 0,
     premium_wet: 0,
@@ -487,7 +574,7 @@ export function createDefaultDailyTasks(): DailyTask[] {
       titleEn: 'Offer food 2 times',
       progress: 0,
       target: 2,
-      rewardCoins: 35,
+      rewardCoins: 30,
       rewardXp: 25,
       claimed: false
     },
@@ -498,7 +585,7 @@ export function createDefaultDailyTasks(): DailyTask[] {
       titleEn: 'Play with your cat',
       progress: 0,
       target: 1,
-      rewardCoins: 35,
+      rewardCoins: 30,
       rewardXp: 30,
       claimed: false
     },
@@ -509,7 +596,7 @@ export function createDefaultDailyTasks(): DailyTask[] {
       titleEn: 'Clean litter box or room',
       progress: 0,
       target: 1,
-      rewardCoins: 30,
+      rewardCoins: 25,
       rewardXp: 20,
       claimed: false
     },
@@ -520,7 +607,7 @@ export function createDefaultDailyTasks(): DailyTask[] {
       titleEn: 'Take 1 photo of your cat',
       progress: 0,
       target: 1,
-      rewardCoins: 30,
+      rewardCoins: 25,
       rewardXp: 20,
       claimed: false
     },
@@ -531,7 +618,7 @@ export function createDefaultDailyTasks(): DailyTask[] {
       titleEn: 'Gentle bonding care 3 times',
       progress: 0,
       target: 3,
-      rewardCoins: 40,
+      rewardCoins: 35,
       rewardXp: 30,
       claimed: false
     }

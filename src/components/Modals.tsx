@@ -1,6 +1,18 @@
-import { Award, Check, CheckCircle2, Lock, Save, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import {
+  Award,
+  Check,
+  CheckCircle2,
+  Cpu,
+  Lock,
+  Save,
+  Trash2,
+  Volume2,
+  VolumeX,
+  X
+} from 'lucide-react';
 import { useState } from 'react';
 import { getBreedDefinition } from '../config/breeds';
+import { FOOD_CATALOG } from '../config/catalog';
 import {
   BEHAVIOR_LABELS,
   BODY_CONDITION_LABELS,
@@ -12,10 +24,11 @@ import {
   UI_TEXT
 } from '../i18n/translations';
 import { BOND_MILESTONES } from '../simulation/bond';
+import { hasPlacedEquipment } from '../simulation/equipment';
 import { computeGrowthMetrics } from '../simulation/growth';
 import { getDominantPersonalitySummary } from '../simulation/personality';
 import { useGameStore } from '../store/useGameStore';
-import { PersonalityTraits, QualityPreset } from '../types/game';
+import { FoodItemId, PersonalityTraits, QualityPreset } from '../types/game';
 
 /**
  * Detailed Cat Identity, Body Condition, 8-Trait Personality & Bond Profile.
@@ -52,7 +65,7 @@ export function CatProfileModal() {
           </button>
         </div>
 
-        {/* Identity & Growth */}
+        {/* Identity & Natural Growth */}
         <div className="section-box">
           <div className="row-between">
             <div style={{ fontSize: 12 }}>
@@ -86,6 +99,7 @@ export function CatProfileModal() {
               }}
             />
           </div>
+          <div style={{ fontSize: 10.5, color: '#756355' }}>{t.naturalGrowthNote}</div>
         </div>
 
         {/* Dynamic Weight & Body Condition */}
@@ -172,6 +186,289 @@ export function CatProfileModal() {
   );
 }
 
+/**
+ * Control Center for all 5 Advanced Automatic Cat-Care Equipment items.
+ */
+export function EquipmentModal() {
+  const state = useGameStore();
+  const lang = state.settings.language;
+  const [selectedFeedId, setSelectedFeedId] = useState<FoodItemId>('adult_dry');
+
+  if (!state.showEquipmentModal) return null;
+
+  const hasFountain = Boolean(hasPlacedEquipment(state.placedFurniture, 'auto_water_fountain'));
+  const hasFeeder = Boolean(hasPlacedEquipment(state.placedFurniture, 'auto_food_feeder'));
+  const hasLitter = Boolean(hasPlacedEquipment(state.placedFurniture, 'auto_litter_box'));
+  const hasSmartBed = Boolean(hasPlacedEquipment(state.placedFurniture, 'smart_cat_bed'));
+  const hasAutoToy = Boolean(hasPlacedEquipment(state.placedFurniture, 'auto_cat_toy'));
+  const hasAny = hasFountain || hasFeeder || hasLitter || hasSmartBed || hasAutoToy;
+
+  const { waterFountain, autoFeeder, autoLitterBox, smartCatBed, autoCatToy } = state.equipment;
+  const compatibleFoods = FOOD_CATALOG.filter((f) => f.id !== 'kitten_milk');
+
+  return (
+    <div className="modal-backdrop" onClick={() => state.setShowEquipmentModal(false)}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="row-between">
+          <h3 style={{ margin: 0, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Cpu size={16} color="#c87a56" />
+            {lang === 'th' ? 'จัดการอุปกรณ์ดูแลแมวอัตโนมัติ' : 'Automatic Cat Equipment'}
+          </h3>
+          <button
+            type="button"
+            className="drawer-close"
+            onClick={() => state.setShowEquipmentModal(false)}
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {!hasAny && (
+          <div className="section-box" style={{ fontSize: 12, color: '#756355', textAlign: 'center' }}>
+            {lang === 'th'
+              ? 'ยังไม่ได้ติดตั้งอุปกรณ์อัตโนมัติในห้อง ซื้อได้ที่ ร้านค้า → อุปกรณ์อัตโนมัติ แล้ววางในห้องได้เลย!'
+              : 'No automatic equipment placed yet. Purchase smart devices in Shop → Auto Gear and place them in your room!'}
+          </div>
+        )}
+
+        {hasFountain && (
+          <div className="section-box">
+            <div className="row-between">
+              <strong style={{ fontSize: 12.5 }}>
+                💧 {lang === 'th' ? 'น้ำพุแมวอัตโนมัติ' : 'Cat Water Fountain'}
+              </strong>
+              <span className={`badge ${waterFountain.isFlowing ? 'sage' : 'warn'}`}>
+                {waterFountain.isFlowing
+                  ? lang === 'th'
+                    ? 'กำลังไหล'
+                    : 'Flowing'
+                  : lang === 'th'
+                    ? 'น้ำหมด'
+                    : 'Low'}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b5546' }}>
+              {lang === 'th'
+                ? `ระดับน้ำ: ${Math.round(waterFountain.waterLevel)}% • ความสะอาดไส้กรอง: ${Math.round(waterFountain.cleanliness)}%`
+                : `Water Level: ${Math.round(waterFountain.waterLevel)}% • Filter Cleanliness: ${Math.round(waterFountain.cleanliness)}%`}
+            </div>
+            <div className="chip-group">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  state.setShowEquipmentModal(false);
+                  state.refillWaterFountain();
+                }}
+              >
+                {lang === 'th' ? 'เติมน้ำพุ' : 'Refill Water'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  state.setShowEquipmentModal(false);
+                  state.cleanWaterFountain();
+                }}
+              >
+                {lang === 'th' ? 'ล้างไส้กรอง' : 'Clean Filter'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {hasFeeder && (
+          <div className="section-box">
+            <div className="row-between">
+              <strong style={{ fontSize: 12.5 }}>
+                🍽️ {lang === 'th' ? 'เครื่องให้อาหารอัตโนมัติ' : 'Automatic Food Feeder'}
+              </strong>
+              <span className="badge warm">
+                {autoFeeder.storedServings}/{autoFeeder.maxStorage}{' '}
+                {lang === 'th' ? 'มื้อ' : 'servings'}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b5546' }}>
+              {lang === 'th'
+                ? `อาหารในถาด: ${Math.round(autoFeeder.bowlServingsLevel)}% • ใช้เฉพาะอาหารจากคลังของคุณ`
+                : `Tray Level: ${Math.round(autoFeeder.bowlServingsLevel)}% • Uses food loaded from your inventory`}
+            </div>
+
+            <div className="row-between" style={{ fontSize: 11 }}>
+              <span>{lang === 'th' ? 'รอบจ่ายอาหาร:' : 'Schedule:'}</span>
+              <div className="chip-group">
+                {([4, 6, 8] as const).map((hrs) => (
+                  <button
+                    key={hrs}
+                    type="button"
+                    className={`chip-btn ${autoFeeder.scheduleHours === hrs ? 'selected' : ''}`}
+                    onClick={() => state.updateAutoFeederSettings({ scheduleHours: hrs })}
+                  >
+                    {hrs}h
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="row-between" style={{ fontSize: 11 }}>
+              <span>{lang === 'th' ? 'ปริมาณต่อมื้อ:' : 'Portion:'}</span>
+              <div className="chip-group">
+                {([1, 2] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`chip-btn ${autoFeeder.portionSize === p ? 'selected' : ''}`}
+                    onClick={() => state.updateAutoFeederSettings({ portionSize: p })}
+                  >
+                    {p}x
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="chip-group">
+              {compatibleFoods.map((f) => {
+                const inv = state.foodInventory[f.id] ?? 0;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={`chip-btn ${selectedFeedId === f.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedFeedId(f.id)}
+                  >
+                    {lang === 'th' ? f.nameTh : f.nameEn} ({inv})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="chip-group">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => state.loadAutoFeeder(selectedFeedId, 1)}
+              >
+                {lang === 'th' ? 'เติมอาหาร +1 จากคลัง' : 'Load +1 from Inventory'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => state.dispenseAutoFeederNow()}
+              >
+                {lang === 'th' ? 'จ่ายอาหารตอนนี้' : 'Dispense Now'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {hasLitter && (
+          <div className="section-box">
+            <div className="row-between">
+              <strong style={{ fontSize: 12.5 }}>
+                🧼 {lang === 'th' ? 'ห้องน้ำแมวอัตโนมัติ' : 'Automatic Litter Box'}
+              </strong>
+              <span
+                className={`badge ${
+                  autoLitterBox.wasteLevel >= 85
+                    ? 'warn'
+                    : autoLitterBox.catInside
+                      ? 'warm'
+                      : 'sage'
+                }`}
+              >
+                {autoLitterBox.catInside
+                  ? lang === 'th'
+                    ? 'เซนเซอร์หยุด (แมวอยู่ด้านใน)'
+                    : 'Safety Pause (Cat Inside)'
+                  : autoLitterBox.kittenSafeLock
+                    ? lang === 'th'
+                      ? 'โหมดปลอดภัยลูกแมว'
+                      : 'Kitten Safe Lock'
+                    : autoLitterBox.isCleaning
+                      ? lang === 'th'
+                        ? 'กำลังหมุนเก็บ...'
+                        : 'Cleaning...'
+                      : lang === 'th'
+                        ? 'พร้อมทำงาน'
+                        : 'Ready'}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: '#6b5546' }}>
+              {lang === 'th'
+                ? `ความสะอาดทราย: ${Math.round(autoLitterBox.litterCleanliness)}% • ถังของเสีย: ${Math.round(autoLitterBox.wasteLevel)}%`
+                : `Litter Cleanliness: ${Math.round(autoLitterBox.litterCleanliness)}% • Waste Bin: ${Math.round(autoLitterBox.wasteLevel)}%`}
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                state.setShowEquipmentModal(false);
+                state.emptyAutoLitterWaste();
+              }}
+            >
+              {lang === 'th' ? 'เทถังเก็บของเสีย' : 'Empty Waste Drawer'}
+            </button>
+          </div>
+        )}
+
+        {hasSmartBed && (
+          <div className="section-box">
+            <div className="row-between">
+              <strong style={{ fontSize: 12.5 }}>
+                🛏️ {lang === 'th' ? 'เตียงแมวอัจฉริยะ' : 'Smart Cat Bed'}
+              </strong>
+              <div className="chip-group">
+                {[1, 2, 3].map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    className={`chip-btn ${smartCatBed.warmthLevel === lvl ? 'selected' : ''}`}
+                    onClick={() => state.setSmartBedWarmth(lvl)}
+                  >
+                    {lang === 'th' ? `อุ่น ${lvl}` : `Warm ${lvl}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasAutoToy && (
+          <div className="section-box">
+            <div className="row-between">
+              <strong style={{ fontSize: 12.5 }}>
+                🪶 {lang === 'th' ? 'ของเล่นแมวอัตโนมัติ' : 'Automatic Cat Toy'}
+              </strong>
+              <button
+                type="button"
+                className={autoCatToy.enabled ? 'btn-secondary' : 'btn-primary'}
+                onClick={() => state.toggleAutoCatToy()}
+              >
+                {autoCatToy.enabled
+                  ? lang === 'th'
+                    ? `หยุด (${Math.ceil(autoCatToy.activeSecondsRemaining)}s)`
+                    : `Stop (${Math.ceil(autoCatToy.activeSecondsRemaining)}s)`
+                  : autoCatToy.cooldownSecondsRemaining > 0
+                    ? lang === 'th'
+                      ? `พัก ${Math.ceil(autoCatToy.cooldownSecondsRemaining)}s`
+                      : `Wait ${Math.ceil(autoCatToy.cooldownSecondsRemaining)}s`
+                    : lang === 'th'
+                      ? 'เปิดทำงาน'
+                      : 'Activate'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Production Settings Modal:
+ * - Strictly NO manual day/age skip buttons or debug time speed multipliers!
+ * - Includes bite visual accessibility setting (disable subtle blood-like effect -> red flash).
+ */
 export function SettingsModal() {
   const state = useGameStore();
   const { settings, cat } = state;
@@ -266,43 +563,25 @@ export function SettingsModal() {
               ))}
             </div>
           </div>
+
+          <div className="row-between">
+            <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1 }}>
+              {t.reduceBiteVisuals}
+            </span>
+            <button
+              type="button"
+              className={`chip-btn ${settings.reduceBiteVisuals ? 'selected' : ''}`}
+              onClick={() =>
+                state.updateSettings({ reduceBiteVisuals: !settings.reduceBiteVisuals })
+              }
+            >
+              {settings.reduceBiteVisuals ? 'ON' : 'OFF'}
+            </button>
+          </div>
         </div>
 
-        <div className="section-box">
-          <div className="row-between">
-            <span style={{ fontSize: 12, fontWeight: 700 }}>{t.timeSpeed}</span>
-            <div className="chip-group">
-              {([1, 5, 20] as const).map((spd) => (
-                <button
-                  key={spd}
-                  type="button"
-                  className={`chip-btn ${settings.timeScale === spd ? 'selected' : ''}`}
-                  onClick={() => state.updateSettings({ timeScale: spd })}
-                >
-                  {spd}x
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ fontSize: 12, fontWeight: 700 }}>{t.growthTest}</div>
-          <div className="chip-group">
-            {[
-              { days: 7, label: '+7d' },
-              { days: 14, label: '+14d' },
-              { days: 45, label: '+45d' },
-              { days: 180, label: '+180d' }
-            ].map((opt) => (
-              <button
-                key={opt.days}
-                type="button"
-                className="chip-btn"
-                onClick={() => state.skipAgeDays(opt.days)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+        <div className="section-box" style={{ fontSize: 11, color: '#6b5546' }}>
+          🌱 {t.naturalGrowthNote}
         </div>
 
         <div className="row-between">

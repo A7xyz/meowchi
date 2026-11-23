@@ -1,12 +1,14 @@
 import { getBreedDefinition } from '../config/breeds';
 import { getFoodItem } from '../config/catalog';
+import { ECONOMY_CONFIG } from '../config/economy';
 import { CatBreed, CatGrowthMetrics, FoodItemId, LifeStage } from '../types/game';
 
 /**
- * Configurable game-time progression:
- * At 1x speed, 1 in-game day passes every 480 real seconds (8 minutes).
+ * Real-time game progression:
+ * 1 real day (86,400 seconds) = 1 in-game cat day at default 1.0 scale.
+ * Growth is strictly derived from elapsed UTC time, never frame rate or manual clicks.
  */
-export const REAL_SECONDS_PER_GAME_DAY_AT_1X = 480;
+export const REAL_SECONDS_PER_GAME_DAY_AT_1X = ECONOMY_CONFIG.REAL_SECONDS_PER_GAME_DAY;
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -68,6 +70,9 @@ export function computeGrowthMetrics(
   const tailRatio = lerp(0.56, 1.0, smoothstep(7, 200, d));
   const earRatio = lerp(0.68, 1.0, smoothstep(0, 140, d));
 
+  // Coat transitions gradually from soft newborn down to mature adult coat & ruff
+  const coatMaturity = smoothstep(14, 320, d);
+
   // Realistic newborn eye opening: closed days 0-7, gradually opening days 8-14
   const eyeOpenness = smoothstep(7.5, 14.5, d);
 
@@ -90,7 +95,7 @@ export function computeGrowthMetrics(
   } else if (d >= 57 && d < 181) {
     maxMoveSpeed = lerp(0.65, 1.25, (d - 57) / 124);
   } else if (d >= 181) {
-    maxMoveSpeed = lerp(1.18, 1.36, smoothstep(181, 366, d));
+    maxMoveSpeed = lerp(1.18, 1.38, smoothstep(181, 366, d));
   }
 
   return {
@@ -103,6 +108,7 @@ export function computeGrowthMetrics(
     tailRatio,
     earRatio,
     eyeOpenness,
+    coatMaturity,
     idealWeightKg,
     canWalk,
     canRun,
@@ -140,7 +146,39 @@ export function isFoodSafeForAge(
   return { allowed: true };
 }
 
-export function advanceAgeDays(currentAgeDays: number, dtSeconds: number, timeScale: number): number {
-  const daysDelta = (dtSeconds * timeScale) / REAL_SECONDS_PER_GAME_DAY_AT_1X;
+/**
+ * Frame-rate independent age advancement from real elapsed UTC timestamps.
+ * Never duplicates growth across page reloads because lastSyncAtUtc strictly moves forward.
+ */
+export function advanceAgeFromUtc(
+  currentAgeDays: number,
+  lastSyncAtUtc: number,
+  nowUtc: number,
+  timeScale: number = ECONOMY_CONFIG.GAME_TIME_SCALE
+): { ageDays: number; lastGrowthSyncAtUtc: number; deltaDays: number } {
+  const safeLast = Number.isFinite(lastSyncAtUtc) ? lastSyncAtUtc : nowUtc;
+  const elapsedSeconds = Math.max(0, (nowUtc - safeLast) / 1000);
+  if (elapsedSeconds <= 0) {
+    return {
+      ageDays: currentAgeDays,
+      lastGrowthSyncAtUtc: Math.max(safeLast, nowUtc),
+      deltaDays: 0
+    };
+  }
+
+  const deltaDays = (elapsedSeconds * Math.max(0, timeScale)) / REAL_SECONDS_PER_GAME_DAY_AT_1X;
+  return {
+    ageDays: currentAgeDays + deltaDays,
+    lastGrowthSyncAtUtc: nowUtc,
+    deltaDays
+  };
+}
+
+export function advanceAgeDays(
+  currentAgeDays: number,
+  dtSeconds: number,
+  timeScale: number = ECONOMY_CONFIG.GAME_TIME_SCALE
+): number {
+  const daysDelta = (dtSeconds * Math.max(0, timeScale)) / REAL_SECONDS_PER_GAME_DAY_AT_1X;
   return currentAgeDays + Math.max(0, daysDelta);
 }

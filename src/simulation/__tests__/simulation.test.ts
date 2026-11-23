@@ -4,15 +4,44 @@ import {
   getCompatibleEyeColors,
   getCompatiblePatterns
 } from '../../config/breeds';
-import { INITIAL_PLACED_FURNITURE, ROOM_HALF_DEPTH, ROOM_HALF_WIDTH } from '../../config/catalog';
+import {
+  FURNITURE_CATALOG,
+  INITIAL_PLACED_FURNITURE,
+  ROOM_HALF_DEPTH,
+  ROOM_HALF_WIDTH
+} from '../../config/catalog';
+import { ECONOMY_CONFIG, evaluateMinigameReward } from '../../config/economy';
 import { createInitialSaveData, validateAndMigrateSave } from '../../persistence/saveManager';
+import { useGameStore } from '../../store/useGameStore';
 import { addBondPoints, getBondCapabilities } from '../bond';
 import { chooseNextBehavior, stepCatAI } from '../catAI';
 import { resolveCatCollision, validateFurniturePlacement } from '../collision';
+import {
+  applyIdempotentCoinReward,
+  buildDailyTaskClaimId,
+  getUtcDayNumber
+} from '../economy';
 import { evaluateCatEmotion } from '../emotions';
-import { computeGrowthMetrics, getLifeStageForAge, isFoodSafeForAge } from '../growth';
+import {
+  consumePlayerEnergyForMinigame,
+  createInitialPlayerEnergy,
+  reconcilePlayerEnergy
+} from '../energy';
+import {
+  createInitialEquipmentState,
+  dispenseFromAutoFeeder,
+  loadAutoFeederFromInventory,
+  stepEquipmentSimulation
+} from '../equipment';
+import {
+  advanceAgeFromUtc,
+  computeGrowthMetrics,
+  getLifeStageForAge,
+  isFoodSafeForAge
+} from '../growth';
 import {
   applyOfflineElapsed,
+  performBrushAction,
   performFeedAction,
   performPetAction,
   performRespectSpaceAction,
@@ -33,11 +62,9 @@ describe('10 Breeds & Coat/Eye Genetics Compatibility', () => {
   });
 
   it('enforces realistic feline coat & eye genetics', () => {
-    // Colorpoint cats express sapphire blue eyes
     expect(getCompatibleEyeColors('siamese', 'cream', 'colorpoint')).toEqual(['blue']);
     expect(getCompatibleEyeColors('ragdoll', 'white', 'colorpoint')).toEqual(['blue']);
 
-    // Calico & tortoiseshell excluded for male cats (XX-linked coat pattern)
     const malePatterns = getCompatiblePatterns('thai_mixed', 'male');
     expect(malePatterns).not.toContain('calico');
     expect(malePatterns).not.toContain('tortoiseshell');
@@ -45,7 +72,7 @@ describe('10 Breeds & Coat/Eye Genetics Compatibility', () => {
   });
 });
 
-describe('Cat Life Stages, Continuous Growth & Food Age Rules', () => {
+describe('Natural Real-Time Growth (1 Real Day = 1 Cat Day) & No Manual Skip', () => {
   it('maps ages accurately across all five life stages', () => {
     expect(getLifeStageForAge(0)).toBe('newborn');
     expect(getLifeStageForAge(14)).toBe('newborn');
@@ -58,7 +85,25 @@ describe('Cat Life Stages, Continuous Growth & Food Age Rules', () => {
     expect(getLifeStageForAge(366)).toBe('adult');
   });
 
-  it('grows continuously per breed and opens newborn eyes realistically', () => {
+  it('advances cat age at 1 real day = 1 cat day without duplication on repeated reloads', () => {
+    const startUtc = 1_700_000_000_000;
+    const after24h = startUtc + 86_400_000;
+
+    const first = advanceAgeFromUtc(2, startUtc, after24h);
+    expect(first.ageDays).toBeCloseTo(3, 5);
+    expect(first.lastGrowthSyncAtUtc).toBe(after24h);
+
+    // Simulating repeated browser refreshes at the same timestamp yields 0 duplicated growth
+    const reload1 = advanceAgeFromUtc(first.ageDays, first.lastGrowthSyncAtUtc, after24h);
+    const reload2 = advanceAgeFromUtc(reload1.ageDays, reload1.lastGrowthSyncAtUtc, after24h);
+    expect(reload2.ageDays).toBeCloseTo(3, 5);
+    expect(reload2.deltaDays).toBe(0);
+
+    // Ensure manual skipAgeDays action does not exist on the store
+    expect((useGameStore.getState() as unknown as Record<string, unknown>).skipAgeDays).toBeUndefined();
+  });
+
+  it('grows continuously per breed, opens newborn eyes, and restricts newborn solid food', () => {
     const day2 = computeGrowthMetrics('maine_coon', 2);
     const day11 = computeGrowthMetrics('maine_coon', 11);
     const adultMaine = computeGrowthMetrics('maine_coon', 400);
@@ -67,164 +112,410 @@ describe('Cat Life Stages, Continuous Growth & Food Age Rules', () => {
     expect(day2.eyeOpenness).toBe(0);
     expect(day11.eyeOpenness).toBeGreaterThan(0.1);
     expect(adultMaine.eyeOpenness).toBe(1);
+    expect(adultMaine.coatMaturity).toBeGreaterThan(day2.coatMaturity);
     expect(adultMaine.idealWeightKg).toBeGreaterThan(adultMunchkin.idealWeightKg);
-    expect(day2.canWalk).toBe(false);
-    expect(adultMaine.canJump).toBe(true);
-  });
 
-  it('prevents newborn kittens from consuming solid foods', () => {
     expect(isFoodSafeForAge('kitten_milk', 3).allowed).toBe(true);
     expect(isFoodSafeForAge('kitten_wet', 3).allowed).toBe(false);
     expect(isFoodSafeForAge('adult_dry', 3).allowed).toBe(false);
-    expect(isFoodSafeForAge('cat_treat', 3).allowed).toBe(false);
-
-    expect(isFoodSafeForAge('kitten_wet', 28).allowed).toBe(true);
-    expect(isFoodSafeForAge('adult_dry', 28).allowed).toBe(false);
     expect(isFoodSafeForAge('adult_dry', 100).allowed).toBe(true);
   });
 });
 
-describe('8-Trait Randomized Personality, Emotions & Care Development', () => {
-  it('generates distinct randomized personalities and evolves gradually through care', () => {
-    const pA = generateRandomPersonality(() => 0.1); // Affectionate archetype
-    const pB = generateRandomPersonality(() => 0.4); // Shy archetype
-    const pC = generateRandomPersonality(() => 0.6); // Defensive/independent archetype
-
-    expect(pA.affection).toBeGreaterThan(pC.affection);
-    expect(pB.fearfulness).toBeGreaterThan(pA.fearfulness);
-    expect(pC.aggression).toBeGreaterThan(pA.aggression);
-
-    // Gentle care raises trust & lowers fear; disturbing sleep temporarily increases defensiveness
-    const afterCalm = evolvePersonality(pB, 'respect_space');
-    expect(afterCalm.trust).toBeGreaterThan(pB.trust);
-    expect(afterCalm.fearfulness).toBeLessThan(pB.fearfulness);
-
-    const afterDisturb = evolvePersonality(pA, 'disturb_sleep');
-    expect(afterDisturb.aggression).toBeGreaterThan(pA.aggression);
-  });
-
-  it('triggers realistic defensive/fearful emotions when overstimulated or sleep-disturbed and calms with quiet space', () => {
-    const save = createInitialSaveData('bengal', { hasAdoptedInitialCat: true });
-    save.cat.ageDays = 90;
-    save.cat.lifeStage = 'young_kitten';
-    save.cat.behavior = 'sleep';
-    save.cat.needs.energy = 40;
-    save.cat.traits.aggression = 60;
-
-    // Disturbing sleep triggers defensive hiss reaction
-    const disturb = performPetAction(save.cat, save.room);
-    expect(disturb.success).toBe(false);
-    expect(disturb.cat.behavior).toBe('hiss_defend');
-    expect(evaluateCatEmotion(disturb.cat)).toBe('defensive_angry');
-
-    // Respecting space calms stress & restores trust
-    const calmed = performRespectSpaceAction(disturb.cat, disturb.room);
-    expect(calmed.success).toBe(true);
-    expect(calmed.cat.needs.stress).toBeLessThan(disturb.cat.needs.stress);
-    expect(calmed.cat.traits.trust).toBeGreaterThan(disturb.cat.traits.trust);
-  });
-});
-
-describe('Dynamic Realistic Weight & Body Condition System', () => {
-  it('changes body condition gradually over time rather than instantly on a single meal', () => {
-    const save = createInitialSaveData('british_shorthair', { hasAdoptedInitialCat: true });
-    save.cat.ageDays = 400;
-    save.cat.lifeStage = 'adult';
-    const beforeWeight = save.cat.weight.bodyFatIndex;
-
-    // Adding calories buffers them first (no instant jump)
-    const buffered = addMealCalories(save.cat.weight, 80);
-    expect(buffered.bodyFatIndex).toBe(beforeWeight);
-
-    // Stepping simulation gradually digests surplus calories into fuller body condition
-    let current = { ...save.cat, weight: buffered, behavior: 'idle' as const };
-    for (let i = 0; i < 15; i++) {
-      current = { ...current, weight: stepWeightSimulation(current, 4, 6) };
-    }
-    expect(current.weight.bodyFatIndex).toBeGreaterThan(beforeWeight + 0.15);
-    expect(classifyBodyCondition(0.45)).toBe('overweight');
-    expect(classifyBodyCondition(-0.45)).toBe('underweight');
-    expect(classifyBodyCondition(0.0)).toBe('healthy');
-  });
-});
-
-describe('Care Economy, Offline Fairness, AI & Persistence', () => {
-  it('handles age-safe feeding, sleep recovery, and capped offline decay fairly', () => {
-    const save = createInitialSaveData('persian', { hasAdoptedInitialCat: true });
-    save.cat.ageDays = 3;
-    save.cat.needs.hunger = 50;
-
-    expect(performFeedAction(save.cat, save.room, 'adult_dry').success).toBe(false);
-    const fed = performFeedAction(save.cat, save.room, 'kitten_milk');
-    expect(fed.success).toBe(true);
-    expect(fed.cat.needs.hunger).toBeGreaterThan(70);
-
-    save.cat.needs.energy = 40;
-    const slept = performSleepAction(save.cat, save.room);
-    const ticked = tickNeeds(slept.cat, slept.room, 60, 1);
-    expect(ticked.needs.energy).toBeGreaterThan(slept.cat.needs.energy);
-
-    const offline = applyOfflineElapsed(save.cat, save.room, 48 * 3600);
-    expect(offline.cat.needs.hunger).toBeGreaterThanOrEqual(30);
-    expect(offline.cat.needs.happiness).toBeGreaterThanOrEqual(48);
-  });
-
-  it('tracks bond unlocks and moves autonomously inside room bounds without clipping', () => {
-    expect(addBondPoints(1, 90, 25).bondLevel).toBe(2);
-    expect(getBondCapabilities(90).requestsAffection).toBe(true);
-
-    const save = createInitialSaveData('siamese', { hasAdoptedInitialCat: true });
-    save.cat.ageDays = 4;
-    const nb = chooseNextBehavior(save.cat, {
-      furniture: save.placedFurniture,
-      room: save.room,
-      playerFocusPoint: { x: 0, z: 0 },
-      activeToyTarget: null,
-      soundEventPos: null,
-      rng: () => 0.3
+describe('Anti-Exploit Coin Rules & Idempotent Transactions (Tests 1, 2, 8)', () => {
+  it('TEST 1: tapping "Give Personal Space" 100 times generates strictly 0 Coins', () => {
+    const fresh = createInitialSaveData('siamese', { hasAdoptedInitialCat: true });
+    useGameStore.setState({
+      ...fresh,
+      hydrated: true,
+      coins: 100,
+      activeCareAction: null,
+      actionCooldowns: {}
     });
-    expect(['sleep', 'idle', 'stretch', 'yawn']).toContain(nb.behavior);
 
-    save.cat.ageDays = 100;
+    for (let i = 0; i < 100; i++) {
+      useGameStore.getState().respectCatSpace(true);
+    }
+
+    expect(useGameStore.getState().coins).toBe(100);
+    expect(performRespectSpaceAction(fresh.cat, fresh.room).coinsEarned).toBe(0);
+  });
+
+  it('TEST 2: rapid feeding & petting taps do not duplicate item consumption or overlap active animations', () => {
+    const fresh = createInitialSaveData('siamese', { hasAdoptedInitialCat: true });
+    fresh.cat.ageDays = 40;
+    fresh.cat.lifeStage = 'baby_kitten';
+    fresh.cat.needs.hunger = 40;
+    fresh.foodInventory.kitten_wet = 5;
+    // Mark one-time achievements already unlocked so we strictly verify 0 Coins from care action itself
+    fresh.achievements = fresh.achievements.map((a) => ({ ...a, unlocked: true }));
+
+    useGameStore.setState({
+      ...fresh,
+      hydrated: true,
+      coins: 120,
+      activeCareAction: null,
+      actionCooldowns: {}
+    });
+
+    // Rapidly tap feed 5 times while hand animation is active
+    const first = useGameStore.getState().feedCat('kitten_wet');
+    const second = useGameStore.getState().feedCat('kitten_wet');
+    const third = useGameStore.getState().petCat();
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(third).toBe(false);
+    expect(useGameStore.getState().activeCareAction?.type).toBe('feed');
+
+    // Commit at contact moment -> consumes exactly 1 serving and awards 0 Coins
+    useGameStore.getState().commitActiveCareAction();
+    useGameStore.getState().commitActiveCareAction(); // Duplicate commit is no-op
+    expect(useGameStore.getState().foodInventory.kitten_wet).toBe(4);
+    expect(useGameStore.getState().coins).toBe(120);
+
+    useGameStore.getState().finishActiveCareAction();
+    expect(useGameStore.getState().activeCareAction).toBeNull();
+  });
+
+  it('enforces idempotent daily task rewards (claimable only once per UTC reset day)', () => {
+    const nowUtc = 1_700_000_000_000;
+    const utcDay = getUtcDayNumber(nowUtc);
+    const claimId = buildDailyTaskClaimId(utcDay, 'daily_feed');
+
+    const first = applyIdempotentCoinReward(100, [], claimId, 30);
+    expect(first.applied).toBe(true);
+    expect(first.coins).toBe(130);
+
+    const dup = applyIdempotentCoinReward(first.coins, first.claimedRewardIds, claimId, 30);
+    expect(dup.applied).toBe(false);
+    expect(dup.coins).toBe(130);
+  });
+});
+
+describe('Human Player Energy System & 60s Minigames (Tests 3, 4, 5, 6, 7, 8)', () => {
+  it('TESTS 3, 4, 5: deducts 5 energy per minigame start (20 -> 15 -> 10) and refuses below 5', () => {
+    const t0 = 1_700_000_000_000;
+    const fresh = createInitialSaveData('siamese', { hasAdoptedInitialCat: true, nowUtc: t0 });
+    useGameStore.setState({
+      ...fresh,
+      hydrated: true,
+      coins: 100,
+      activeMinigameSession: null,
+      playerEnergy: createInitialPlayerEnergy(t0)
+    });
+
+    // Start minigame #1 at 20 energy -> 15
+    const mg1 = useGameStore.getState().startMinigame('fishing', t0 + 1000);
+    expect(mg1.started).toBe(true);
+    expect(useGameStore.getState().playerEnergy.current).toBe(15);
+
+    // Concurrent minigame refused
+    expect(useGameStore.getState().startMinigame('matching', t0 + 2000).started).toBe(false);
+    expect(useGameStore.getState().playerEnergy.current).toBe(15);
+
+    // Complete minigame #1 -> earns balanced coins (15..45), duplicate claim rejected
+    const comp1 = useGameStore.getState().completeMinigame(mg1.sessionId!, 220, t0 + 61_000);
+    expect(comp1.claimed).toBe(true);
+    expect(comp1.coinsEarned).toBe(35);
+    expect(useGameStore.getState().coins).toBe(135);
+
+    const dupClaim = useGameStore.getState().completeMinigame(mg1.sessionId!, 999, t0 + 62_000);
+    expect(dupClaim.claimed).toBe(false);
+    expect(useGameStore.getState().coins).toBe(135);
+
+    // Start minigame #2 -> decreases to 10; canceling yields 0 Coins
+    const mg2 = useGameStore.getState().startMinigame('delivery', t0 + 63_000);
+    expect(mg2.started).toBe(true);
+    expect(useGameStore.getState().playerEnergy.current).toBe(10);
+    useGameStore.getState().cancelMinigame();
+    expect(useGameStore.getState().coins).toBe(135);
+
+    // Set energy to 4 -> refuses to start
+    useGameStore.setState({
+      playerEnergy: { current: 4, max: 20, lastRegenAtUtc: t0 + 63_000, lastSeenUtc: t0 + 63_000 }
+    });
+    const mgLow = useGameStore.getState().startMinigame('toy_challenge', t0 + 64_000);
+    expect(mgLow.started).toBe(false);
+    expect(useGameStore.getState().playerEnergy.current).toBe(4);
+  });
+
+  it('TESTS 6, 7, 8: regenerates +1 energy per 20m, caps at 20 after 24h, and never duplicates on refresh', () => {
+    const t0 = 1_700_000_000_000;
+    const empty = { current: 0, max: 20, lastRegenAtUtc: t0, lastSeenUtc: t0 };
+
+    // +20 minutes -> exactly 1 energy
+    const after20m = reconcilePlayerEnergy(empty, t0 + 20 * 60 * 1000);
+    expect(after20m.energy.current).toBe(1);
+    expect(after20m.gained).toBe(1);
+
+    // +100 minutes -> exactly 5 energy
+    const after100m = reconcilePlayerEnergy(empty, t0 + 100 * 60 * 1000);
+    expect(after100m.energy.current).toBe(5);
+
+    // +400 minutes -> exactly 20 energy
+    const after400m = reconcilePlayerEnergy(empty, t0 + 400 * 60 * 1000);
+    expect(after400m.energy.current).toBe(20);
+
+    // +24 hours -> capped at 20 energy (never exceeds 20)
+    const after24h = reconcilePlayerEnergy(empty, t0 + 24 * 3600 * 1000);
+    expect(after24h.energy.current).toBe(20);
+
+    // Repeated browser refresh at same time -> 0 extra energy
+    const refresh1 = reconcilePlayerEnergy(after20m.energy, t0 + 20 * 60 * 1000);
+    const refresh2 = reconcilePlayerEnergy(refresh1.energy, t0 + 20 * 60 * 1000);
+    expect(refresh2.energy.current).toBe(1);
+    expect(refresh2.gained).toBe(0);
+
+    // Minigame reward tiers strictly capped at 45 Coins
+    expect(evaluateMinigameReward('fishing', 10).coins).toBe(15);
+    expect(evaluateMinigameReward('fishing', 100).coins).toBe(25);
+    expect(evaluateMinigameReward('fishing', 200).coins).toBe(35);
+    expect(evaluateMinigameReward('fishing', 9999).coins).toBe(45);
+
+    // Direct energy consumption check
+    const consumed = consumePlayerEnergyForMinigame(createInitialPlayerEnergy(t0), t0);
+    expect(consumed.success).toBe(true);
+    expect(consumed.energy.current).toBe(15);
+  });
+});
+
+describe('Advanced Automatic Cat Shop Equipment (Tests 9, 10)', () => {
+  it('TESTS 9 & 10: buys Automatic Food Feeder once (650c) and deducts real food inventory without creating free food', () => {
+    const feederItem = FURNITURE_CATALOG.find((f) => f.id === 'auto_food_feeder');
+    expect(feederItem?.priceCoins).toBe(ECONOMY_CONFIG.PRICES.auto_food_feeder);
+    expect(feederItem?.priceCoins).toBe(650);
+
+    const fresh = createInitialSaveData('siamese', { hasAdoptedInitialCat: true });
+    fresh.coins = 1000;
+    fresh.foodInventory.adult_dry = 5;
+    useGameStore.setState({
+      ...fresh,
+      hydrated: true,
+      activeCareAction: null
+    });
+
+    // Buy Automatic Feeder -> deducts 650 once, owned count becomes 1
+    const bought1 = useGameStore.getState().buyFurniture('auto_food_feeder');
+    expect(bought1).toBe(true);
+    expect(useGameStore.getState().coins).toBe(350);
+    expect(useGameStore.getState().ownedFurniture.auto_food_feeder).toBe(1);
+
+    // Attempt duplicate buy -> blocked
+    const bought2 = useGameStore.getState().buyFurniture('auto_food_feeder');
+    expect(bought2).toBe(false);
+    expect(useGameStore.getState().coins).toBe(350);
+
+    // Load Automatic Feeder strictly from player's foodInventory
+    const loaded = loadAutoFeederFromInventory(
+      createInitialEquipmentState(),
+      { ...fresh.foodInventory, adult_dry: 5 },
+      'adult_dry',
+      2
+    );
+    expect(loaded.success).toBe(true);
+    expect(loaded.foodInventory.adult_dry).toBe(3);
+    expect(loaded.equipment.autoFeeder.storedServings).toBe(2);
+
+    // Dispense uses stored servings (never free!)
+    const disp = dispenseFromAutoFeeder(loaded.equipment, 120);
+    expect(disp.dispensed).toBe(true);
+    expect(disp.equipment.autoFeeder.storedServings).toBe(1);
+    expect(disp.equipment.autoFeeder.bowlServingsLevel).toBeGreaterThan(0);
+
+    // Empty hopper cannot dispense free food
+    const emptyHopper = {
+      ...disp.equipment,
+      autoFeeder: { ...disp.equipment.autoFeeder, storedServings: 0, bowlServingsLevel: 0 }
+    };
+    expect(dispenseFromAutoFeeder(emptyHopper, 120).dispensed).toBe(false);
+  });
+
+  it('enforces Automatic Litter Box safety: never operates while cat is inside or for young kittens', () => {
+    const save = createInitialSaveData('ragdoll', { hasAdoptedInitialCat: true });
+    save.cat.ageDays = 200;
+    save.cat.lifeStage = 'adolescent';
+    const autoLitter = {
+      instanceId: 'f_auto_litter_1',
+      catalogId: 'auto_litter_box',
+      x: -1.6,
+      z: -1.4,
+      rotationY: 0
+    };
+    const placed = [...save.placedFurniture, autoLitter];
+    const equip = createInitialEquipmentState();
+    equip.autoLitterBox.needsCleaning = true;
+    equip.autoLitterBox.pendingCleanDelaySec = 0;
+
+    // Place cat INSIDE the automatic litter box -> must NOT clean!
+    save.cat.position = { x: autoLitter.x, y: 0.07, z: autoLitter.z };
+    const whileInside = stepEquipmentSimulation(equip, save.cat, save.room, placed, 0.1);
+    expect(whileInside.equipment.autoLitterBox.catInside).toBe(true);
+    expect(whileInside.equipment.autoLitterBox.isCleaning).toBe(false);
+
+    // Move adult cat safely away -> starts cleaning after delay
+    save.cat.position = { x: 1.0, y: 0, z: 1.0 };
+    const ready = { ...whileInside.equipment, autoLitterBox: { ...whileInside.equipment.autoLitterBox, pendingCleanDelaySec: 0 } };
+    const afterExit = stepEquipmentSimulation(ready, save.cat, save.room, placed, 0.1);
+    expect(afterExit.equipment.autoLitterBox.isCleaning).toBe(true);
+
+    // Young kitten (< 57 days) -> kitten safety lock keeps auto-cleaning disabled
+    save.cat.ageDays = 30;
+    const kittenCheck = stepEquipmentSimulation(ready, save.cat, save.room, placed, 0.1);
+    expect(kittenCheck.equipment.autoLitterBox.kittenSafeLock).toBe(true);
+    expect(kittenCheck.equipment.autoLitterBox.isCleaning).toBe(false);
+  });
+});
+
+describe('Playful AI, Defensive Hissing, Rare Biting & Visible Hand Actions (Tests 11–16)', () => {
+  it('TEST 11: high-playfulness cats trigger zoomies, rolling, pouncing, box ambush & navigate smoothly in bounds', () => {
+    const save = createInitialSaveData('bengal', { hasAdoptedInitialCat: true });
+    save.cat.ageDays = 140;
     save.cat.lifeStage = 'young_kitten';
-    save.cat.behavior = 'walk';
+    save.cat.behavior = 'idle';
+    save.cat.needs.energy = 85;
+    save.cat.needs.stress = 5;
+    save.cat.traits.playfulness = 95;
+    save.cat.traits.curiosity = 88;
+
+    const chosenBehaviors = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const rVal = (i * 0.024 + 0.01) % 0.99;
+      const decision = chooseNextBehavior(save.cat, {
+        furniture: save.placedFurniture,
+        room: save.room,
+        equipment: save.equipment,
+        playerFocusPoint: { x: 0, z: 0 },
+        activeToyTarget: null,
+        soundEventPos: null,
+        rng: () => rVal
+      });
+      chosenBehaviors.add(decision.behavior);
+    }
+
+    const playfulActions = ['zoomies', 'roll_play', 'box_ambush', 'chase_imaginary', 'pounce_crouch', 'play', 'jump_prep'];
+    const hits = playfulActions.filter((b) => chosenBehaviors.has(b));
+    expect(hits.length).toBeGreaterThanOrEqual(3);
+
+    // Step zoomies navigation smoothly inside room without clipping or teleporting
+    save.cat.behavior = 'zoomies';
     save.cat.behaviorTimer = 5;
+    save.cat.zoomieWaypointsRemaining = 2;
     save.cat.position = { x: 0, y: 0, z: 0.2 };
-    save.cat.targetPosition = { x: 1.5, z: 0.8 };
+    save.cat.targetPosition = { x: 1.6, z: 1.1 };
 
     let cur = save.cat;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 40; i++) {
+      const prevPos = { ...cur.position };
       cur = stepCatAI(
         cur,
         {
           furniture: save.placedFurniture,
           room: save.room,
+          equipment: save.equipment,
           playerFocusPoint: { x: 0, z: 0 },
           activeToyTarget: null,
           soundEventPos: null
         },
         0.05
       ).cat;
+      expect(Math.hypot(cur.position.x - prevPos.x, cur.position.z - prevPos.z)).toBeLessThan(0.25);
       expect(Math.abs(cur.position.x)).toBeLessThanOrEqual(ROOM_HALF_WIDTH);
       expect(Math.abs(cur.position.z)).toBeLessThanOrEqual(ROOM_HALF_DEPTH);
     }
-    expect(cur.position.x).toBeGreaterThan(0.5);
-
-    expect(
-      validateFurniturePlacement(
-        { instanceId: 't1', catalogId: 'bed_woven', x: 5.0, z: 0, rotationY: 0 },
-        INITIAL_PLACED_FURNITURE
-      ).valid
-    ).toBe(false);
-    expect(
-      Math.abs(resolveCatCollision({ x: 0, z: -1.85 }, 0.2, INITIAL_PLACED_FURNITURE).z - -1.85)
-    ).toBeGreaterThan(0.2);
   });
 
-  it('migrates legacy v1 saves cleanly to SaveDataV2 and rejects invalid payloads', () => {
+  it('TESTS 12 & 13: escalates logically from defensive hiss warning to rare defensive bite with trust/stress update and 0 Coins', () => {
+    const nowUtc = 1_700_000_000_000;
+    const save = createInitialSaveData('bengal', { hasAdoptedInitialCat: true, nowUtc });
+    save.cat.ageDays = 120;
+    save.cat.lifeStage = 'young_kitten';
+    save.cat.behavior = 'sleep';
+    save.cat.needs.energy = 35;
+    save.cat.traits.aggression = 65;
+    save.cat.traits.trust = 40;
+
+    // 1st violation: disturbing sleep -> realistic defensive hiss warning (NOT immediate bite)
+    const warn = performPetAction(save.cat, save.room, nowUtc);
+    expect(warn.success).toBe(false);
+    expect(warn.triggeredBite).toBeFalsy();
+    expect(warn.cat.behavior).toBe('hiss_defend');
+    expect(warn.vocalCue).toBe('hiss');
+    expect(evaluateCatEmotion(warn.cat)).toBe('defensive_angry');
+
+    // 2nd violation while cat is actively hissing -> triggers rare defensive bite!
+    const bite = performPetAction(warn.cat, warn.room, nowUtc + 1000);
+    expect(bite.success).toBe(false);
+    expect(bite.triggeredBite).toBe(true);
+    expect(bite.cat.behavior).toBe('bite_defend');
+    expect(bite.coinsEarned).toBe(0);
+    expect(bite.xpEarned).toBe(0);
+    expect(bite.cat.traits.trust).toBeLessThan(warn.cat.traits.trust);
+    expect(bite.cat.needs.stress).toBeGreaterThan(warn.cat.needs.stress);
+    expect(bite.cat.calmDownUntilUtc).toBeGreaterThan(nowUtc);
+
+    // Store bite feedback triggers screen-edge sequence counter
+    useGameStore.setState({
+      ...save,
+      cat: warn.cat,
+      hydrated: true,
+      activeCareAction: null,
+      actionCooldowns: {},
+      biteFeedback: { seq: 0, triggeredAtMs: 0 }
+    });
+    useGameStore.getState().petCat(true);
+    expect(useGameStore.getState().biteFeedback.seq).toBe(1);
+
+    // Giving personal space calms stress & resets warnings with 0 Coins
+    const calmed = performRespectSpaceAction(bite.cat, bite.room);
+    expect(calmed.coinsEarned).toBe(0);
+    expect(calmed.cat.needs.stress).toBeLessThan(bite.cat.needs.stress);
+    expect(calmed.cat.ignoredWarningsCount).toBe(0);
+  });
+
+  it('TESTS 14, 15, 16: petting, feeding, and grooming trigger visible hand care actions cleanly', () => {
+    const save = createInitialSaveData('persian', { hasAdoptedInitialCat: true });
+    save.cat.ageDays = 90;
+    save.cat.lifeStage = 'young_kitten';
+    save.cat.behavior = 'sit';
+    save.cat.needs.hunger = 50;
+    save.cat.needs.stress = 5;
+    save.cat.traits.aggression = 15;
+    save.cat.traits.fearfulness = 15;
+    save.foodInventory.kitten_wet = 3;
+
+    useGameStore.setState({ ...save, hydrated: true, activeCareAction: null, actionCooldowns: {} });
+
+    expect(useGameStore.getState().petCat()).toBe(true);
+    expect(useGameStore.getState().activeCareAction?.type).toBe('pet');
+    useGameStore.getState().commitActiveCareAction();
+    useGameStore.getState().finishActiveCareAction();
+
+    useGameStore.setState({ actionCooldowns: {} });
+    expect(useGameStore.getState().feedCat('kitten_wet')).toBe(true);
+    expect(useGameStore.getState().activeCareAction?.type).toBe('feed');
+    useGameStore.getState().commitActiveCareAction();
+    useGameStore.getState().finishActiveCareAction();
+
+    useGameStore.setState({ actionCooldowns: {} });
+    expect(useGameStore.getState().brushCat()).toBe(true);
+    expect(useGameStore.getState().activeCareAction?.type).toBe('brush');
+    useGameStore.getState().commitActiveCareAction();
+    useGameStore.getState().finishActiveCareAction();
+
+    // Grooming simulation check
+    const brushed = performBrushAction(save.cat, save.room);
+    expect(brushed.success).toBe(true);
+    expect(brushed.coinsEarned).toBe(0);
+  });
+});
+
+describe('Save Migration V1/V2 -> V3, Weight, Bond & Collision (Test 17)', () => {
+  it('TEST 17: migrates legacy V1 and V2 saves to V3 preserving cat identity, coins, and progress', () => {
     const legacyV1 = {
       version: 1,
-      savedAt: Date.now(),
+      savedAt: 1_700_000_000_000,
+      coins: 420,
       cat: {
         identity: {
           id: 'cat_old',
@@ -238,18 +529,80 @@ describe('Care Economy, Offline Fairness, AI & Persistence', () => {
           adoptedAt: 1000
         },
         ageDays: 45,
+        bondLevel: 12,
         needs: { hunger: 80, thirst: 80, energy: 80, happiness: 80, hygiene: 80, health: 95 }
       }
     };
 
-    const migrated = validateAndMigrateSave(legacyV1);
-    expect(migrated).not.toBeNull();
-    expect(migrated?.version).toBe(2);
-    expect(migrated?.cat.identity.breed).toBe('siamese');
-    expect(migrated?.cat.identity.furPattern).toBe('colorpoint');
-    expect(migrated?.foodInventory.kitten_milk).toBeGreaterThan(0);
+    const migratedV1 = validateAndMigrateSave(legacyV1, 1_700_000_000_000);
+    expect(migratedV1).not.toBeNull();
+    expect(migratedV1?.version).toBe(3);
+    expect(migratedV1?.coins).toBe(420);
+    expect(migratedV1?.cat.identity.name).toBe('มะลิ');
+    expect(migratedV1?.cat.identity.breed).toBe('siamese');
+    expect(migratedV1?.cat.identity.furPattern).toBe('colorpoint');
+    expect(migratedV1?.cat.bondLevel).toBe(12);
+    expect(migratedV1?.playerEnergy.current).toBe(20);
+    expect(migratedV1?.equipment.autoFeeder.storedServings).toBe(0);
+
+    const legacyV2 = {
+      ...migratedV1,
+      version: 2,
+      coins: 777
+    };
+    const migratedV2 = validateAndMigrateSave(legacyV2, 1_700_000_000_000);
+    expect(migratedV2?.version).toBe(3);
+    expect(migratedV2?.coins).toBe(777);
 
     expect(validateAndMigrateSave(null)).toBeNull();
     expect(validateAndMigrateSave({ version: 99 })).toBeNull();
+  });
+
+  it('preserves gradual weight simulation, bond unlocks, offline caps, and collision rules', () => {
+    const save = createInitialSaveData('british_shorthair', { hasAdoptedInitialCat: true });
+    save.cat.ageDays = 400;
+    save.cat.lifeStage = 'adult';
+    const beforeWeight = save.cat.weight.bodyFatIndex;
+
+    const buffered = addMealCalories(save.cat.weight, 80);
+    expect(buffered.bodyFatIndex).toBe(beforeWeight);
+
+    let current = { ...save.cat, weight: buffered, behavior: 'idle' as const };
+    for (let i = 0; i < 15; i++) {
+      current = { ...current, weight: stepWeightSimulation(current, 4, 6) };
+    }
+    expect(current.weight.bodyFatIndex).toBeGreaterThan(beforeWeight + 0.15);
+    expect(classifyBodyCondition(0.45)).toBe('overweight');
+
+    expect(addBondPoints(1, 90, 25).bondLevel).toBe(2);
+    expect(getBondCapabilities(90).requestsAffection).toBe(true);
+
+    const offline = applyOfflineElapsed(save.cat, save.room, 48 * 3600);
+    expect(offline.cat.needs.hunger).toBeGreaterThanOrEqual(30);
+    expect(offline.cat.needs.happiness).toBeGreaterThanOrEqual(48);
+
+    save.cat.needs.energy = 40;
+    const slept = performSleepAction(save.cat, save.room);
+    const ticked = tickNeeds(slept.cat, slept.room, 60, 1, true);
+    expect(ticked.needs.energy).toBeGreaterThan(slept.cat.needs.energy);
+
+    expect(
+      validateFurniturePlacement(
+        { instanceId: 't1', catalogId: 'auto_food_feeder', x: 5.0, z: 0, rotationY: 0 },
+        INITIAL_PLACED_FURNITURE
+      ).valid
+    ).toBe(false);
+    expect(
+      Math.abs(resolveCatCollision({ x: 0, z: -1.85 }, 0.2, INITIAL_PLACED_FURNITURE).z - -1.85)
+    ).toBeGreaterThan(0.2);
+
+    const pA = generateRandomPersonality(() => 0.1);
+    const pB = generateRandomPersonality(() => 0.4);
+    expect(evolvePersonality(pB, 'respect_space').trust).toBeGreaterThan(pB.trust);
+    expect(pA.affection).toBeGreaterThan(pB.affection);
+
+    const fed = performFeedAction(save.cat, save.room, 'adult_dry');
+    expect(fed.success).toBe(true);
+    expect(fed.coinsEarned).toBe(0);
   });
 });

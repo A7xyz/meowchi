@@ -1,6 +1,7 @@
 import { Coins, Sparkles, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { soundManager } from '../../audio/SoundManager';
+import { ECONOMY_CONFIG, evaluateMinigameReward } from '../../config/economy';
 import { useGameStore } from '../../store/useGameStore';
 
 interface TidyItem {
@@ -12,42 +13,86 @@ interface TidyItem {
   placed: boolean;
 }
 
-const INITIAL_ITEMS: TidyItem[] = [
-  { id: 'i1', emoji: '🧶', zoneId: 'toy_bin', nameTh: 'ไหมพรม', nameEn: 'Yarn Ball', placed: false },
-  { id: 'i2', emoji: '🐭', zoneId: 'toy_bin', nameTh: 'หนูของเล่น', nameEn: 'Toy Mouse', placed: false },
-  { id: 'i3', emoji: '🥣', zoneId: 'kitchen', nameTh: 'ชามแมว', nameEn: 'Bowl', placed: false },
-  { id: 'i4', emoji: '☕', zoneId: 'kitchen', nameTh: 'แก้วกาแฟ', nameEn: 'Mug', placed: false },
-  { id: 'i5', emoji: '🛏️', zoneId: 'bed_area', nameTh: 'หมอนนุ่ม', nameEn: 'Pillow', placed: false },
-  { id: 'i6', emoji: '🪶', zoneId: 'toy_bin', nameTh: 'ขนนก', nameEn: 'Feather', placed: false }
+const ITEM_POOL: Omit<TidyItem, 'id' | 'placed'>[] = [
+  { emoji: '🧶', zoneId: 'toy_bin', nameTh: 'ไหมพรม', nameEn: 'Yarn Ball' },
+  { emoji: '🐭', zoneId: 'toy_bin', nameTh: 'หนูของเล่น', nameEn: 'Toy Mouse' },
+  { emoji: '🪶', zoneId: 'toy_bin', nameTh: 'ขนนก', nameEn: 'Feather' },
+  { emoji: '🔔', zoneId: 'toy_bin', nameTh: 'ลูกบอลกระดิ่ง', nameEn: 'Bell Ball' },
+  { emoji: '🥣', zoneId: 'kitchen', nameTh: 'ชามแมว', nameEn: 'Cat Bowl' },
+  { emoji: '☕', zoneId: 'kitchen', nameTh: 'แก้วกาแฟ', nameEn: 'Coffee Mug' },
+  { emoji: '🐟', zoneId: 'kitchen', nameTh: 'จานขนม', nameEn: 'Snack Dish' },
+  { emoji: '🥛', zoneId: 'kitchen', nameTh: 'ขวดนม', nameEn: 'Milk Bottle' },
+  { emoji: '🛏️', zoneId: 'bed_area', nameTh: 'หมอนนุ่ม', nameEn: 'Pillow' },
+  { emoji: '🧣', zoneId: 'bed_area', nameTh: 'ผ้าห่มอุ่น', nameEn: 'Blanket' },
+  { emoji: '🧸', zoneId: 'bed_area', nameTh: 'ตุ๊กตาแมว', nameEn: 'Plushie' }
 ];
+
+function buildWave(waveNum: number): TidyItem[] {
+  const shuffled = [...ITEM_POOL].sort(() => Math.random() - 0.5).slice(0, 6);
+  return shuffled.map((spec, idx) => ({
+    ...spec,
+    id: `w${waveNum}_i${idx}`,
+    placed: false
+  }));
+}
 
 export function CleanRoomGame() {
   const lang = useGameStore((s) => s.settings.language);
+  const session = useGameStore((s) => s.activeMinigameSession);
   const completeMinigame = useGameStore((s) => s.completeMinigame);
-  const openMinigame = useGameStore((s) => s.openMinigame);
+  const cancelMinigame = useGameStore((s) => s.cancelMinigame);
 
-  const [items, setItems] = useState<TidyItem[]>(() => INITIAL_ITEMS.map((i) => ({ ...i })));
+  const duration = session?.durationSec ?? ECONOMY_CONFIG.MINIGAME_DURATION_SECONDS;
+  const [wave, setWave] = useState(1);
+  const [items, setItems] = useState<TidyItem[]>(() => buildWave(1));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [mistakes, setMistakes] = useState(0);
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(duration);
+  const [claimed, setClaimed] = useState(false);
+
+  const finished = timeLeft <= 0;
+
+  useEffect(() => {
+    if (finished) return;
+    const id = setInterval(() => {
+      setTimeLeft((t) => Math.max(0, t - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [finished]);
 
   const remaining = items.filter((i) => !i.placed);
-  const done = remaining.length === 0;
-  const rewardCoins = Math.max(20, 38 - mistakes * 3);
 
   const placeIntoZone = (zoneId: TidyItem['zoneId']) => {
-    if (!selectedItemId) return;
+    if (finished || !selectedItemId) return;
     const item = items.find((i) => i.id === selectedItemId);
     if (!item || item.placed) return;
 
     if (item.zoneId === zoneId) {
-      soundManager.playSoftChime(760);
-      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, placed: true } : i)));
+      const nextCombo = combo + 1;
+      setCombo(nextCombo);
+      const nextItems = items.map((i) => (i.id === item.id ? { ...i, placed: true } : i));
+      const waveCleared = nextItems.every((i) => i.placed);
+      setScore((s) => s + 12 + Math.min(10, nextCombo * 2) + (waveCleared ? 30 : 0));
+      soundManager.playSoftChime(waveCleared ? 860 : 760);
       setSelectedItemId(null);
+
+      if (waveCleared) {
+        const nextWave = wave + 1;
+        setWave(nextWave);
+        setItems(buildWave(nextWave));
+      } else {
+        setItems(nextItems);
+      }
     } else {
       soundManager.playSoftChime(280);
-      setMistakes((m) => m + 1);
+      setCombo(0);
+      setScore((s) => Math.max(0, s - 5));
     }
   };
+
+  if (!session) return null;
+  const reward = evaluateMinigameReward('clean_room', score);
 
   const zones: { id: TidyItem['zoneId']; icon: string; labelTh: string; labelEn: string }[] = [
     { id: 'toy_bin', icon: '🧺', labelTh: 'ตะกร้าของเล่น', labelEn: 'Toy Basket' },
@@ -55,25 +100,44 @@ export function CleanRoomGame() {
     { id: 'bed_area', icon: '🛋️', labelTh: 'มุมเบาะพักผ่อน', labelEn: 'Cozy Rest Area' }
   ];
 
+  const handleCollect = () => {
+    if (claimed || !finished) return;
+    setClaimed(true);
+    completeMinigame(session.sessionId, score);
+  };
+
   return (
     <div className="minigame-overlay ui-interactive">
       <div className="row-between">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 15 }}>
           <Sparkles size={18} color="#6d9575" />
-          <span>{lang === 'th' ? 'จัดเก็บห้องนั่งเล่น' : 'Clean the Room'}</span>
+          <span>{lang === 'th' ? `จัดเก็บห้อง • รอบ ${wave}` : `Room Cleaning • Wave ${wave}`}</span>
         </div>
-        <button type="button" className="drawer-close" onClick={() => openMinigame(null)}>
+        <button
+          type="button"
+          className="drawer-close"
+          onClick={() => cancelMinigame()}
+          aria-label="Cancel minigame"
+        >
           <X size={16} />
         </button>
       </div>
 
-      <div style={{ fontSize: 11.5, color: '#6b5546' }}>
-        {lang === 'th'
-          ? 'แตะเลือกของที่วางกระจัดกระจาย แล้วแตะจุดจัดเก็บที่ถูกต้อง (เล่นฟรีไม่จำกัด!)'
-          : 'Tap a scattered item, then tap the matching organizer spot to tidy up!'}
+      <div className="row-between" style={{ fontSize: 12, fontWeight: 700 }}>
+        <span className="badge warm">
+          {lang === 'th' ? `เวลา ${timeLeft} วิ` : `Time ${timeLeft}s`}
+        </span>
+        <span className="badge sage">
+          {lang === 'th' ? `คะแนน ${score} • คอมโบ x${combo}` : `Score ${score} • Combo x${combo}`}
+        </span>
       </div>
 
-      {/* Organizer Target Zones */}
+      <div style={{ fontSize: 11, color: '#6b5546' }}>
+        {lang === 'th'
+          ? 'แตะเลือกของที่กระจัดกระจาย แล้วแตะจุดจัดเก็บที่ถูกต้องให้ไวที่สุดใน 60 วินาที!'
+          : 'Tap a scattered item, then tap the matching organizer spot before time runs out!'}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {zones.map((z) => {
           const countInZone = items.filter((i) => i.zoneId === z.id && i.placed).length;
@@ -81,13 +145,14 @@ export function CleanRoomGame() {
             <button
               key={z.id}
               type="button"
+              disabled={finished}
               onClick={() => placeIntoZone(z.id)}
               style={{
                 padding: '14px 8px',
                 borderRadius: 16,
                 border: selectedItemId ? '2px dashed #c87a56' : '1px solid rgba(139,114,92,0.2)',
                 background: selectedItemId ? '#fff6ee' : '#fff',
-                cursor: 'pointer',
+                cursor: finished ? 'default' : 'pointer',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -104,7 +169,6 @@ export function CleanRoomGame() {
         })}
       </div>
 
-      {/* Scattered Items Floor Area */}
       <div
         className="section-box"
         style={{
@@ -114,11 +178,13 @@ export function CleanRoomGame() {
           background: 'linear-gradient(180deg, #f6eee3 0%, #eadbc8 100%)'
         }}
       >
-        {done ? (
-          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {finished ? (
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 38 }}>✨🏡✨</div>
             <div style={{ fontSize: 15, fontWeight: 700 }}>
-              {lang === 'th' ? 'ห้องสะอาดเรียบร้อยแล้ว!' : 'Room is spotless & cozy!'}
+              {lang === 'th'
+                ? `หมดเวลา! คะแนน ${score} (${reward.tier.toUpperCase()})`
+                : `Time's Up! Score ${score} (${reward.tier.toUpperCase()})`}
             </div>
           </div>
         ) : (
@@ -155,17 +221,18 @@ export function CleanRoomGame() {
         )}
       </div>
 
-      {done && (
+      {finished && (
         <button
           type="button"
           className="btn-primary"
+          disabled={claimed}
           style={{ width: '100%', padding: '12px', fontSize: 14 }}
-          onClick={() => completeMinigame('clean_room', rewardCoins, 100 - mistakes * 10)}
+          onClick={handleCollect}
         >
           <Coins size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
           {lang === 'th'
-            ? `รับรางวัล +${rewardCoins} เหรียญ และกลับบ้าน`
-            : `Collect +${rewardCoins} Coins & Return`}
+            ? `รับรางวัล +${reward.coins} เหรียญ และกลับบ้าน`
+            : `Collect +${reward.coins} Coins & Return`}
         </button>
       )}
     </div>

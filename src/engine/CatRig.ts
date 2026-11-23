@@ -622,10 +622,10 @@ export class CatRig {
     this.earLeftPivot.scale.setScalar(metrics.earRatio * morph.earSize);
     this.earRightPivot.scale.setScalar(metrics.earRatio * morph.earSize);
 
-    // Fluffiness & natural fur micro-movement
-    const fluffFactor = morph.furFluffiness;
+    // Fluffiness & natural fur micro-movement (grows gradually with age coatMaturity!)
+    const fluffFactor = morph.furFluffiness * (0.68 + metrics.coatMaturity * 0.32);
     this.cheekFluffGroup.scale.setScalar(0.65 + fluffFactor * 0.65);
-    const puffUp = emotion === 'defensive_angry' ? 1.24 : 1.0; // Piloerection when hissing!
+    const puffUp = emotion === 'defensive_angry' ? 1.3 : 1.0; // Piloerection when hissing/biting!
     for (let i = 0; i < this.furTufts.length; i++) {
       const card = this.furTufts[i];
       card.visible = fluffFactor > 0.34 || emotion === 'defensive_angry';
@@ -635,7 +635,7 @@ export class CatRig {
     }
     for (const seg of this.tailFluffMeshes) {
       seg.visible = morph.tailPlushness > 0.92 || emotion === 'defensive_angry';
-      seg.scale.setScalar(morph.tailPlushness * (emotion === 'defensive_angry' ? 1.32 : 0.96));
+      seg.scale.setScalar(morph.tailPlushness * (emotion === 'defensive_angry' ? 1.38 : 0.96));
     }
 
     for (const leg of this.legs) {
@@ -659,7 +659,10 @@ export class CatRig {
     const targetStretch = state.behavior === 'stretch' ? 1 : 0;
     const targetCrouch =
       state.behavior === 'pounce_crouch' ||
+      state.behavior === 'jump_prep' ||
+      state.behavior === 'jump_land' ||
       state.behavior === 'hide' ||
+      state.behavior === 'box_ambush' ||
       emotion === 'fearful'
         ? 1
         : 0;
@@ -686,12 +689,15 @@ export class CatRig {
     baseHeight = lerp(baseHeight, sitHeight, this.sitBlend);
     baseHeight = lerp(baseHeight, crouchHeight, this.crouchBlend);
     baseHeight = lerp(baseHeight, sleepHeight, this.sleepBlend);
+    if (state.behavior === 'roll_play') {
+      baseHeight = sleepHeight + 0.025;
+    }
 
     const speed = Math.hypot(state.velocity.x, state.velocity.z);
     const normalizedSpeed = Math.min(1.4, speed / Math.max(0.2, metrics.maxMoveSpeed));
-    this.walkCycle += dt * (speed * 11.5);
+    this.walkCycle += dt * (speed * (state.behavior === 'zoomies' ? 13.5 : 11.5));
 
-    const walkBob = speed > 0.04 ? Math.abs(Math.sin(this.walkCycle)) * 0.012 : 0;
+    const walkBob = speed > 0.04 ? Math.abs(Math.sin(this.walkCycle)) * 0.014 : 0;
     this.bodyPivot.position.y = baseHeight + walkBob + purrVib;
 
     let bodyPitch = 0;
@@ -699,25 +705,42 @@ export class CatRig {
     if (this.sitBlend > 0.01) bodyPitch -= 0.34 * this.sitBlend;
     if (this.stretchBlend > 0.01) bodyPitch += 0.28 * this.stretchBlend;
     if (state.behavior === 'eat' || state.behavior === 'drink') bodyPitch += 0.24;
-    if (state.behavior === 'pounce_crouch') {
-      bodyPitch += 0.18;
-      // Iconic adorable feline pounce hindquarters wiggle!
-      bodyRoll += Math.sin(this.animClock * 16) * 0.14;
+    if (state.behavior === 'pounce_crouch' || state.behavior === 'jump_prep') {
+      bodyPitch += 0.2;
+      // Iconic adorable feline pounce / jump-prep hindquarters wiggle!
+      bodyRoll += Math.sin(this.animClock * 17) * 0.15;
+    }
+    if (state.behavior === 'jump') {
+      // Natural upward reach during ascent, downward tilt for landing
+      bodyPitch += state.jumpProgress < 0.5 ? -0.36 : 0.28;
+    }
+    if (state.behavior === 'roll_play') {
+      // Playful belly-up floor roll!
+      bodyRoll = Math.sin(this.animClock * 2.6) * 1.45;
     }
     if (state.behavior === 'hiss_defend') {
       // Defensive arched-back posture
-      bodyPitch -= 0.12;
-      this.torsoMesh.scale.y += 0.12;
+      bodyPitch -= 0.15;
+      this.torsoMesh.scale.y += 0.15;
+    }
+    if (state.behavior === 'bite_defend') {
+      // Sharp defensive lunge forward with puffed back
+      const lunge = Math.sin(Math.min(1, (2.2 - state.behaviorTimer) * 3.5) * Math.PI);
+      bodyPitch += 0.18 * lunge;
+      this.bodyPivot.position.z = lunge * 0.08;
+      this.torsoMesh.scale.y += 0.14;
+    } else {
+      this.bodyPivot.position.z = lerp(this.bodyPivot.position.z, 0, Math.min(1, dt * 8));
     }
     this.bodyPivot.rotation.set(bodyPitch, 0, bodyRoll);
 
-    // 6. Articulated Legs (Walking, Sitting, Kneading, Defensive Swat, Sleeping)
+    // 6. Articulated Legs (Walking, Zoomies, Jumping, Rolling, Kneading, Litter Dig, Swat, Sleeping)
     for (const leg of this.legs) {
       const phaseOffset =
         (leg.isFront ? 0 : Math.PI) + (leg.isLeft ? 0 : Math.PI * 0.85);
-      const strideAmp = speed > 0.03 ? 0.52 * Math.min(1, normalizedSpeed + 0.25) : 0;
+      const strideAmp = speed > 0.03 ? 0.54 * Math.min(1.15, normalizedSpeed + 0.25) : 0;
       let upperRot = Math.sin(this.walkCycle + phaseOffset) * strideAmp;
-      let lowerRot = Math.max(0, -Math.cos(this.walkCycle + phaseOffset)) * strideAmp * 0.7;
+      let lowerRot = Math.max(0, -Math.cos(this.walkCycle + phaseOffset)) * strideAmp * 0.72;
 
       if (this.sleepBlend > 0.01) {
         upperRot = lerp(upperRot, leg.isFront ? -1.15 : 1.15, this.sleepBlend);
@@ -739,6 +762,23 @@ export class CatRig {
         upperRot = lerp(upperRot, -0.82, this.stretchBlend);
       }
 
+      if (state.behavior === 'jump') {
+        upperRot = leg.isFront ? -0.85 : 0.92;
+        lowerRot = leg.isFront ? 0.4 : -0.45;
+      }
+
+      if (state.behavior === 'roll_play' && leg.isFront) {
+        const bat = Math.sin(this.animClock * 7.5 + (leg.isLeft ? 0 : Math.PI));
+        upperRot = -0.65 + bat * 0.42;
+        lowerRot = 0.55 - bat * 0.3;
+      }
+
+      if (state.behavior === 'use_litter' && leg.isFront && leg.isLeft) {
+        const dig = Math.sin(this.animClock * 8.0);
+        upperRot = -0.4 + dig * 0.45;
+        lowerRot = 0.35;
+      }
+
       // Affectionate paw kneading ("making biscuits")!
       if (state.behavior === 'knead' && leg.isFront) {
         const kPhase = this.animClock * 4.2 + (leg.isLeft ? 0 : Math.PI);
@@ -747,10 +787,10 @@ export class CatRig {
       }
 
       // Defensive warning paw swat (single front right paw)
-      if (state.behavior === 'hiss_defend' && leg.isFront && !leg.isLeft) {
-        const swat = Math.max(0, Math.sin(this.animClock * 6.5));
-        upperRot = -0.95 * swat;
-        lowerRot = 0.35 * swat;
+      if ((state.behavior === 'hiss_defend' || state.behavior === 'bite_defend') && leg.isFront && !leg.isLeft) {
+        const swat = Math.max(0, Math.sin(this.animClock * 7.5));
+        upperRot = -1.05 * swat;
+        lowerRot = 0.38 * swat;
       }
 
       leg.pivot.rotation.x = upperRot;

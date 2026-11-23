@@ -1,6 +1,7 @@
 import { Coins, Fish, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { soundManager } from '../../audio/SoundManager';
+import { ECONOMY_CONFIG, evaluateMinigameReward } from '../../config/economy';
 import { useGameStore } from '../../store/useGameStore';
 
 interface SwimFish {
@@ -27,15 +28,18 @@ const FISH_SPECIES = [
 
 export function FishingGame() {
   const lang = useGameStore((s) => s.settings.language);
+  const session = useGameStore((s) => s.activeMinigameSession);
   const completeMinigame = useGameStore((s) => s.completeMinigame);
-  const openMinigame = useGameStore((s) => s.openMinigame);
+  const cancelMinigame = useGameStore((s) => s.cancelMinigame);
 
+  const duration = session?.durationSec ?? ECONOMY_CONFIG.MINIGAME_DURATION_SECONDS;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [score, setScore] = useState(0);
   const [catches, setCatches] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(30);
+  const [timeLeft, setTimeLeft] = useState(duration);
   const [lastCatchText, setLastCatchText] = useState<string>('');
   const [finished, setFinished] = useState(false);
+  const [claimed, setClaimed] = useState(false);
 
   const stateRef = useRef({
     bobberX: 180,
@@ -45,7 +49,7 @@ export function FishingGame() {
     nextId: 1,
     score: 0,
     catches: 0,
-    timeLeft: 30,
+    timeLeft: duration,
     biteFishId: null as number | null,
     finished: false
   });
@@ -117,7 +121,6 @@ export function FishingGame() {
         st.fishes.push(spawnFish());
         st.biteFishId = null;
       } else {
-        // Also allow quick tap if fish is very close to bobber
         const near = st.fishes.find(
           (f) => Math.hypot(f.x - st.bobberX, f.y - st.bobberY) < f.size + 18
         );
@@ -184,7 +187,6 @@ export function FishingGame() {
         }
       }
 
-      // Draw sunlit pond background
       const grad = ctx.createLinearGradient(0, 0, 0, H);
       grad.addColorStop(0, '#c6e4ee');
       grad.addColorStop(0.25, '#89c2d6');
@@ -192,7 +194,6 @@ export function FishingGame() {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
-      // Gentle water ripples
       ctx.strokeStyle = 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1.5;
       for (let i = 0; i < 4; i++) {
@@ -203,14 +204,13 @@ export function FishingGame() {
         ctx.stroke();
       }
 
-      // Update & draw fish
       for (let i = 0; i < st.fishes.length; i++) {
         const f = st.fishes[i];
         const distToBobber = Math.hypot(f.x - st.bobberX, f.y - st.bobberY);
 
         if (!st.finished && distToBobber < 42 && !f.biting && st.biteFishId === null) {
           f.biting = true;
-          f.biteTimer = 1.15; // Generous timing window to pull!
+          f.biteTimer = 1.15;
           st.biteFishId = f.id;
           soundManager.playSoftChime(490);
         }
@@ -234,7 +234,6 @@ export function FishingGame() {
           continue;
         }
 
-        // Render organic fish silhouette
         ctx.save();
         ctx.translate(f.x, f.y);
         if (f.vx < 0) ctx.scale(-1, 1);
@@ -244,7 +243,6 @@ export function FishingGame() {
         ctx.ellipse(0, 0, f.size, f.size * 0.52, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Tail fin
         ctx.beginPath();
         ctx.moveTo(-f.size * 0.8, 0);
         ctx.lineTo(-f.size * 1.45, -f.size * 0.45);
@@ -252,7 +250,6 @@ export function FishingGame() {
         ctx.closePath();
         ctx.fill();
 
-        // Highlight & eye
         ctx.fillStyle = f.accent;
         ctx.beginPath();
         ctx.ellipse(2, -f.size * 0.14, f.size * 0.55, f.size * 0.18, 0, 0, Math.PI * 2);
@@ -265,7 +262,6 @@ export function FishingGame() {
         ctx.restore();
       }
 
-      // Fishing line from top center to bobber
       ctx.strokeStyle = 'rgba(255,250,242,0.75)';
       ctx.lineWidth = 1.6;
       ctx.beginPath();
@@ -273,7 +269,6 @@ export function FishingGame() {
       ctx.lineTo(st.bobberX, st.bobberY);
       ctx.stroke();
 
-      // Timing ring when a fish bites!
       const hasBite = st.fishes.some((f) => f.biting);
       if (hasBite) {
         const pulse = 20 + Math.sin(now * 0.02) * 8;
@@ -289,7 +284,6 @@ export function FishingGame() {
         ctx.fillText('!', st.bobberX, st.bobberY - 22);
       }
 
-      // Bobber float
       ctx.fillStyle = '#e0634e';
       ctx.beginPath();
       ctx.arc(st.bobberX, st.bobberY, 10, Math.PI, 0);
@@ -310,16 +304,28 @@ export function FishingGame() {
     };
   }, [lang]);
 
-  const earnedCoins = Math.min(75, Math.max(15, 15 + Math.round(score * 0.45)));
+  if (!session) return null;
+  const reward = evaluateMinigameReward('fishing', score);
+
+  const handleCollect = () => {
+    if (claimed || !finished) return;
+    setClaimed(true);
+    completeMinigame(session.sessionId, score);
+  };
 
   return (
     <div className="minigame-overlay ui-interactive">
       <div className="row-between">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 15 }}>
           <Fish size={18} color="#4e8eb2" />
-          <span>{lang === 'th' ? 'ตกปลาให้น้องแมว' : 'Cozy Pond Fishing'}</span>
+          <span>{lang === 'th' ? 'ตกปลาให้น้องแมว (60 วิ)' : 'Cozy Pond Fishing (60s)'}</span>
         </div>
-        <button type="button" className="drawer-close" onClick={() => openMinigame(null)}>
+        <button
+          type="button"
+          className="drawer-close"
+          onClick={() => cancelMinigame()}
+          aria-label="Cancel minigame"
+        >
           <X size={16} />
         </button>
       </div>
@@ -352,26 +358,31 @@ export function FishingGame() {
       />
 
       {finished ? (
-        <button
-          type="button"
-          className="btn-primary"
-          style={{ width: '100%', padding: '12px', fontSize: 14 }}
-          onClick={() => completeMinigame('fishing', earnedCoins, score)}
-        >
-          <Coins size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-          {lang === 'th'
-            ? `รับรางวัล +${earnedCoins} เหรียญ และกลับบ้าน`
-            : `Collect +${earnedCoins} Coins & Return`}
-        </button>
+        <div className="section-box" style={{ gap: 8, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {lang === 'th'
+              ? `หมดเวลา! คะแนน ${score} (${reward.tier.toUpperCase()})`
+              : `Time's Up! Score ${score} (${reward.tier.toUpperCase()})`}
+          </div>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={claimed}
+            style={{ width: '100%', padding: '12px', fontSize: 14 }}
+            onClick={handleCollect}
+          >
+            <Coins size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            {lang === 'th'
+              ? `รับรางวัล +${reward.coins} เหรียญ และกลับบ้าน`
+              : `Collect +${reward.coins} Coins & Return`}
+          </button>
+        </div>
       ) : (
-        <button
-          type="button"
-          className="btn-secondary"
-          style={{ width: '100%' }}
-          onClick={() => completeMinigame('fishing', score > 0 ? earnedCoins : 10, score)}
-        >
-          {lang === 'th' ? `จบเกมตอนนี้ (+${score > 0 ? earnedCoins : 10} เหรียญ)` : `Finish Early (+${score > 0 ? earnedCoins : 10}c)`}
-        </button>
+        <div style={{ fontSize: 10.5, color: '#756355', textAlign: 'center' }}>
+          {lang === 'th'
+            ? 'เล่นจนครบ 60 วินาทีเพื่อรับรางวัล 15–45 เหรียญ (กดออกก่อนจะไม่ได้รับเหรียญ)'
+            : 'Play the full 60s round to earn 15–45 Coins (canceling grants 0 Coins).'}
+        </div>
       )}
     </div>
   );

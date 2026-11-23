@@ -268,3 +268,50 @@ export function createSisalTexture(): THREE.CanvasTexture {
   textureCache.set(key, tex);
   return tex;
 }
+
+/**
+ * Natural warm human skin procedural texture with subtle pore/subsurface shading
+ * for the first-person articulated 3D human hand rig.
+ */
+export function createHumanSkinTexture(): THREE.CanvasTexture {
+  const key = 'human_skin_natural';
+  const cached = textureCache.get(key);
+  if (cached) return cached;
+
+  const [canvas, ctx] = createCanvas(256, 256);
+  const grad = ctx.createLinearGradient(0, 0, 256, 256);
+  grad.addColorStop(0, '#ecc1a1');
+  grad.addColorStop(0.5, '#e2b08d');
+  grad.addColorStop(1, '#d59d7a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Subtle warm knuckle/palm blush & organic skin tone micro-variation
+  let seed = 4242;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < 650; i++) {
+    const x = rand() * 256;
+    const y = rand() * 256;
+    const r = 1.5 + rand() * 4.5;
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(255, 224, 200, 0.08)' : 'rgba(176, 108, 78, 0.07)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Soft palm crease lines
+  ctx.strokeStyle = 'rgba(155, 96, 70, 0.18)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(42, 130);
+  ctx.quadraticCurveTo(128, 146, 212, 120);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  textureCache.set(key, tex);
+  return tex;
+}

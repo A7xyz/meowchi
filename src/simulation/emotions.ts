@@ -7,11 +7,12 @@ import { CatEmotion, CatRuntimeState } from '../types/game';
 export function evaluateCatEmotion(cat: CatRuntimeState): CatEmotion {
   const { needs, traits, behavior, isPurring } = cat;
 
-  // 1. Defensive / Angry (overstimulated, startled, or stressed defensive cat)
+  // 1. Defensive / Angry (overstimulated, startled, hissing, or rare defensive bite)
   if (
     behavior === 'hiss_defend' ||
+    behavior === 'bite_defend' ||
     (needs.stress >= 68 && traits.aggression >= 42) ||
-    (needs.stress >= 78)
+    needs.stress >= 78
   ) {
     return 'defensive_angry';
   }
@@ -30,12 +31,17 @@ export function evaluateCatEmotion(cat: CatRuntimeState): CatEmotion {
     return 'sleepy';
   }
 
-  // 4. Playful
+  // 4. Playful (zoomies, pouncing, rolling, box ambush, chasing imaginary target, agile jumping)
   if (
     behavior === 'play' ||
     behavior === 'pounce_crouch' ||
     behavior === 'run' ||
-    (behavior === 'jump' && traits.playfulness >= 50)
+    behavior === 'zoomies' ||
+    behavior === 'roll_play' ||
+    behavior === 'box_ambush' ||
+    behavior === 'chase_imaginary' ||
+    ((behavior === 'jump_prep' || behavior === 'jump' || behavior === 'jump_land') &&
+      traits.playfulness >= 45)
   ) {
     return 'playful';
   }

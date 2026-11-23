@@ -79,23 +79,31 @@ export type CatBehaviorState =
   | 'idle'
   | 'walk'
   | 'run'
+  | 'zoomies'
+  | 'roll_play'
+  | 'box_ambush'
+  | 'chase_imaginary'
   | 'sit'
   | 'sleep'
   | 'stretch'
   | 'groom'
   | 'eat'
   | 'drink'
+  | 'use_litter'
   | 'explore'
   | 'play'
   | 'approach_player'
   | 'hide'
   | 'observe'
+  | 'jump_prep'
   | 'jump'
+  | 'jump_land'
   | 'react_to_sound'
   | 'knead'
   | 'head_bunt'
   | 'pounce_crouch'
   | 'hiss_defend'
+  | 'bite_defend'
   | 'yawn';
 
 export type FoodItemId =
@@ -128,9 +136,48 @@ export type FurnitureCategory =
   | 'wall_decor'
   | 'lighting';
 
-export type MinigameId = 'fishing' | 'matching' | 'clean_room';
+export type AutoEquipmentCatalogId =
+  | 'auto_water_fountain'
+  | 'auto_food_feeder'
+  | 'auto_litter_box'
+  | 'smart_cat_bed'
+  | 'auto_cat_toy';
+
+export type MinigameId =
+  | 'fishing'
+  | 'matching'
+  | 'toy_challenge'
+  | 'delivery'
+  | 'clean_room';
+
+export type MinigamePerformanceTier = 'low' | 'normal' | 'excellent' | 'exceptional';
 
 export type ActiveTab = 'care' | 'food' | 'play' | 'shop' | 'minigames';
+
+export type CareActionType =
+  | 'pet'
+  | 'feed'
+  | 'brush'
+  | 'water'
+  | 'clean_litter'
+  | 'clean_room'
+  | 'respect_space'
+  | 'sleep'
+  | 'refill_fountain'
+  | 'clean_fountain'
+  | 'empty_auto_litter';
+
+export interface ActiveCareAction {
+  id: string;
+  type: CareActionType;
+  startedAtMs: number;
+  durationMs: number;
+  contactAtMs: number;
+  committed: boolean;
+  bitten?: boolean;
+  foodId?: FoodItemId;
+  targetInstanceId?: string;
+}
 
 export interface Vec2 {
   x: number;
@@ -175,6 +222,7 @@ export interface CatGrowthMetrics {
   tailRatio: number;
   earRatio: number;
   eyeOpenness: number;
+  coatMaturity: number;       // 0 (soft kitten down) -> 1 (full adult coat)
   idealWeightKg: number;
   canWalk: boolean;
   canRun: boolean;
@@ -222,10 +270,16 @@ export interface CatRuntimeState {
   jumpProgress: number;
   jumpStartY: number;
   jumpTargetY: number;
+  jumpPrepTimer: number;
+  jumpLandTimer: number;
+  zoomieWaypointsRemaining: number;
   isPurring: boolean;
-  mouthOpenAmount: number;    // 0..1 synced with vocalization & yawn
+  mouthOpenAmount: number;    // 0..1 synced with vocalization, hiss, bite & yawn
   recentTouchCount: number;   // Tracks overstimulation from repeated unwanted touching
   recentTouchDecayTimer: number;
+  ignoredWarningsCount: number; // Escalates toward rare defensive bite only if player ignores warnings
+  calmDownUntilUtc: number;   // Post-bite calm-down timestamp (UTC ms)
+  lastBiteAtUtc: number;      // Last defensive bite timestamp (UTC ms)
   vocalizationCooldown: number;
   moodRefusalCooldown: number;
 }
@@ -273,6 +327,7 @@ export interface FurnitureCatalogItem {
   wallMounted?: boolean;
   accentColor: string;
   unlockLevel: number;
+  isAutoEquipment?: boolean;
 }
 
 export interface PlacedFurniture {
@@ -290,6 +345,79 @@ export interface RoomStatus {
   litterCleanliness: number;
   roomCleanliness: number;
   tableMugKnocked: boolean;
+}
+
+export interface WaterFountainState {
+  waterLevel: number;         // 0..100
+  cleanliness: number;        // 0..100
+  isFlowing: boolean;
+}
+
+export interface AutoFeederState {
+  storedFoodId: FoodItemId;
+  storedServings: number;     // 0..12 — loaded strictly from player's foodInventory!
+  maxStorage: number;
+  portionSize: 1 | 2;         // Servings dispensed per scheduled meal
+  scheduleHours: 4 | 6 | 8;   // Feeding schedule interval
+  bowlServingsLevel: number;  // 0..100 visible food in feeder tray
+  lastDispensedAtUtc: number;
+  dispensingAnimTimer: number;
+}
+
+export interface AutoLitterBoxState {
+  wasteLevel: number;         // 0..100 (waste bin capacity)
+  litterCleanliness: number;  // 0..100
+  catInside: boolean;
+  needsCleaning: boolean;
+  cleaningProgress: number;   // 0..1 animated drum cycle
+  isCleaning: boolean;
+  kittenSafeLock: boolean;    // Prevents auto-rotation when cat is kitten (<57 days)
+  pendingCleanDelaySec: number;
+}
+
+export interface SmartCatBedState {
+  warmthLevel: number;        // 1..3 comfort warmth setting
+  occupied: boolean;
+}
+
+export interface AutoCatToyState {
+  enabled: boolean;
+  activeSecondsRemaining: number;
+  cooldownSecondsRemaining: number;
+  armAngle: number;
+}
+
+export interface EquipmentStateMap {
+  waterFountain: WaterFountainState;
+  autoFeeder: AutoFeederState;
+  autoLitterBox: AutoLitterBoxState;
+  smartCatBed: SmartCatBedState;
+  autoCatToy: AutoCatToyState;
+}
+
+export interface PlayerEnergyState {
+  current: number;            // 0..20 (human player energy for minigames only)
+  max: number;                // 20
+  lastRegenAtUtc: number;     // UTC ms anchor for next +1 regen tick
+  lastSeenUtc: number;        // Monotonic UTC guard against refresh/clock replay
+}
+
+export interface MinigameSession {
+  sessionId: string;
+  gameId: MinigameId;
+  startedAtUtc: number;
+  durationSec: number;
+  energyDeducted: boolean;
+  claimed: boolean;
+}
+
+export interface MinigameResultEntry {
+  sessionId: string;
+  gameId: MinigameId;
+  score: number;
+  tier: MinigamePerformanceTier;
+  coinsEarned: number;
+  completedAtUtc: number;
 }
 
 export interface DailyTask {
@@ -329,18 +457,24 @@ export interface GameSettings {
   language: Language;
   quality: QualityPreset;
   soundEnabled: boolean;
-  timeScale: 1 | 5 | 20;
   followCat: boolean;
+  reduceBiteVisuals: boolean; // When true, replaces subtle blood-like bite edge with clean red warning flash
 }
 
-export interface SaveDataV2 {
-  version: 2;
+export interface SaveDataV3 {
+  version: 3;
   savedAt: number;
+  lastGrowthSyncAtUtc: number;
   hasAdoptedInitialCat: boolean;
   cat: CatRuntimeState;
   room: RoomStatus;
+  equipment: EquipmentStateMap;
   coins: number;
   gems: number;
+  playerEnergy: PlayerEnergyState;
+  claimedRewardIds: string[];
+  actionCooldowns: Record<string, number>;
+  minigameHistory: MinigameResultEntry[];
   foodInventory: Record<FoodItemId, number>;
   ownedAccessories: AccessoryId[];
   ownedFurniture: Record<string, number>;
@@ -359,5 +493,9 @@ export interface SaveDataV2 {
     totalPhotos: number;
     knocksCaused: number;
     minigamesCompleted: number;
+    defensiveBites: number;
   };
 }
+
+/** @deprecated Kept as type alias for backward compatibility with older imports */
+export type SaveDataV2 = SaveDataV3;

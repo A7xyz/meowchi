@@ -4,13 +4,15 @@ import { useGameStore } from '../store/useGameStore';
 import { QualityPreset, Vec2 } from '../types/game';
 import { CameraController } from './CameraController';
 import { CatRig } from './CatRig';
+import { HumanHandRig } from './HumanHandRig';
 import { ParticleOverlay } from './ParticleOverlay';
 import { RoomBuilder } from './RoomBuilder';
 import { ToyController } from './ToyController';
 
 /**
  * Main Three.js real-time engine coordinating rendering, cozy daylight lighting,
- * mobile touch/pointer raycasting, interactive toys, decoration drag, and photo capture.
+ * mobile touch/pointer raycasting, interactive toys, first-person 3D human hand,
+ * automatic cat equipment animations, decoration drag, and photo capture.
  */
 export class GameEngine {
   private readonly container: HTMLElement;
@@ -19,6 +21,7 @@ export class GameEngine {
   private readonly cameraCtrl: CameraController;
   private readonly roomBuilder: RoomBuilder;
   private readonly catRig: CatRig;
+  private readonly humanHandRig: HumanHandRig;
   private readonly toyCtrl: ToyController;
   private readonly particles: ParticleOverlay;
   private readonly sunLight: THREE.DirectionalLight;
@@ -28,6 +31,7 @@ export class GameEngine {
 
   private rafId: number | null = null;
   private lastFrameMs = performance.now();
+  private elapsedClockSec = 0;
   private lastParticleSeq = 0;
   private lastToyState: string | null = null;
   private pendingSoundPos: Vec2 | null = null;
@@ -92,6 +96,9 @@ export class GameEngine {
     const initialCat = useGameStore.getState().cat;
     this.catRig = new CatRig(initialCat.identity);
     this.scene.add(this.catRig.root);
+
+    this.humanHandRig = new HumanHandRig();
+    this.scene.add(this.humanHandRig.root);
 
     this.toyCtrl = new ToyController();
     this.scene.add(this.toyCtrl.root);
@@ -339,15 +346,31 @@ export class GameEngine {
         state.feedCat(state.cat.lifeStage === 'newborn' ? 'kitten_milk' : 'kitten_wet');
         return;
       }
+      if (catalogId === 'auto_food_feeder') {
+        state.setShowEquipmentModal(true);
+        return;
+      }
       if (catalogId === 'water_bowl_ceramic') {
         state.giveWater();
+        return;
+      }
+      if (catalogId === 'auto_water_fountain') {
+        state.refillWaterFountain();
         return;
       }
       if (catalogId === 'litter_box_cozy') {
         state.cleanLitterBox();
         return;
       }
-      if (catalogId === 'bed_plush' || catalogId === 'bed_woven') {
+      if (catalogId === 'auto_litter_box') {
+        state.setShowEquipmentModal(true);
+        return;
+      }
+      if (catalogId === 'auto_cat_toy') {
+        state.toggleAutoCatToy();
+        return;
+      }
+      if (catalogId === 'bed_plush' || catalogId === 'bed_woven' || catalogId === 'smart_cat_bed') {
         state.tuckCatToSleep();
         return;
       }
@@ -406,9 +429,21 @@ export class GameEngine {
       this.rafId = requestAnimationFrame(tick);
       const dt = Math.min(0.05, Math.max(0.001, (nowMs - this.lastFrameMs) / 1000));
       this.lastFrameMs = nowMs;
+      this.elapsedClockSec += dt;
 
       const state = useGameStore.getState();
       this.applyQuality(state.settings.quality);
+
+      // Synchronize active visible-hand interaction commit/finish with animation clock
+      if (state.activeCareAction) {
+        const elapsedActionMs = Date.now() - state.activeCareAction.startedAtMs;
+        if (!state.activeCareAction.committed && elapsedActionMs >= state.activeCareAction.contactAtMs) {
+          state.commitActiveCareAction();
+        }
+        if (elapsedActionMs >= state.activeCareAction.durationMs) {
+          state.finishActiveCareAction();
+        }
+      }
 
       // Sync active toy state changes
       if (this.lastToyState !== state.activeToy) {
@@ -433,12 +468,14 @@ export class GameEngine {
 
       const latest = useGameStore.getState();
 
-      // Sync 3D furniture & live room state
+      // Sync 3D furniture & live room/equipment state
       this.roomBuilder.syncFurniture(
         latest.placedFurniture,
         latest.room,
         latest.selectedFurnitureInstanceId,
-        latest.decorateMode
+        latest.decorateMode,
+        latest.equipment,
+        this.elapsedClockSec
       );
 
       if (!latest.decorateMode) {
@@ -472,6 +509,16 @@ export class GameEngine {
           ? new THREE.Vector3(latest.cat.position.x, latest.cat.position.y, latest.cat.position.z)
           : null;
       this.cameraCtrl.update(dt, followVec);
+
+      // Update Visible First-Person 3D Human Hand & Care Tools
+      this.humanHandRig.update(
+        dt,
+        this.cameraCtrl.camera,
+        latest.cat,
+        latest.placedFurniture,
+        latest.activeCareAction,
+        toyTarget
+      );
 
       this.renderer.render(this.scene, this.cameraCtrl.camera);
     };

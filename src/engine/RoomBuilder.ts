@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getCatalogItem, ROOM_HALF_DEPTH, ROOM_HALF_WIDTH, ROOM_HEIGHT } from '../config/catalog';
-import { PlacedFurniture, RoomStatus } from '../types/game';
+import { EquipmentStateMap, PlacedFurniture, RoomStatus } from '../types/game';
 import { createSisalTexture, createWoodFloorTexture, createWovenFabricTexture } from './textures';
 
 interface DynamicFurnitureRefs {
@@ -11,6 +11,16 @@ interface DynamicFurnitureRefs {
   litterSandMat?: THREE.MeshStandardMaterial;
   tableMugGroup?: THREE.Group;
   selectionRing?: THREE.Mesh;
+  // Automatic Cat-Care Equipment dynamic 3D parts
+  fountainStreamMesh?: THREE.Mesh;
+  fountainPoolMesh?: THREE.Mesh;
+  feederHopperFill?: THREE.Mesh;
+  feederTrayFill?: THREE.Mesh;
+  feederDispenseDrop?: THREE.Mesh;
+  autoLitterDrum?: THREE.Group;
+  autoLitterLedMat?: THREE.MeshStandardMaterial;
+  smartBedGlowMat?: THREE.MeshStandardMaterial;
+  autoToyArmPivot?: THREE.Group;
 }
 
 /**
@@ -573,6 +583,206 @@ export class RoomBuilder {
         break;
       }
 
+      // ITEM 1: CAT WATER FOUNTAIN (animated flowing stream + water level)
+      case 'auto_water_fountain': {
+        const bodyMat = new THREE.MeshStandardMaterial({ color: '#f3eee6', roughness: 0.25 });
+        const steelMat = new THREE.MeshStandardMaterial({ color: '#cfd6dc', metalness: 0.5, roughness: 0.25 });
+        const waterMat = new THREE.MeshStandardMaterial({
+          color: '#8fd4ec',
+          transparent: true,
+          opacity: 0.84,
+          roughness: 0.08,
+          metalness: 0.1
+        });
+
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.2, 0.14, 24), bodyMat);
+        base.position.y = 0.07;
+        base.castShadow = true;
+        base.receiveShadow = true;
+        group.add(base);
+
+        const pool = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.16, 0.018, 22), waterMat);
+        pool.position.y = 0.142;
+        group.add(pool);
+        refs.fountainPoolMesh = pool;
+
+        const spoutStem = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.11, 14), steelMat);
+        spoutStem.position.set(0, 0.19, -0.04);
+        group.add(spoutStem);
+
+        const spoutNozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.06, 12), steelMat);
+        spoutNozzle.rotation.x = Math.PI / 2.3;
+        spoutNozzle.position.set(0, 0.24, -0.01);
+        group.add(spoutNozzle);
+
+        const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 0.11, 12), waterMat);
+        stream.position.set(0, 0.19, 0.025);
+        group.add(stream);
+        refs.fountainStreamMesh = stream;
+        break;
+      }
+
+      // ITEM 2: AUTOMATIC FOOD FEEDER (transparent hopper + chute + tray)
+      case 'auto_food_feeder': {
+        const shellMat = new THREE.MeshStandardMaterial({ color: '#f1ebe2', roughness: 0.35 });
+        const glassMat = new THREE.MeshStandardMaterial({
+          color: '#eef5f8',
+          transparent: true,
+          opacity: 0.38,
+          roughness: 0.12
+        });
+        const kibbleMat = new THREE.MeshStandardMaterial({ color: '#7d5232', roughness: 0.9 });
+        const steelMat = new THREE.MeshStandardMaterial({ color: '#cfd6dc', metalness: 0.55, roughness: 0.25 });
+
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.3), shellMat);
+        base.position.set(0, 0.09, -0.06);
+        base.castShadow = true;
+        group.add(base);
+
+        const hopperGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.32, 18), glassMat);
+        hopperGlass.position.set(0, 0.34, -0.06);
+        group.add(hopperGlass);
+
+        const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.126, 0.126, 0.035, 18), shellMat);
+        lid.position.set(0, 0.51, -0.06);
+        lid.castShadow = true;
+        group.add(lid);
+
+        const hopperFill = new THREE.Mesh(new THREE.CylinderGeometry(0.108, 0.108, 0.28, 16), kibbleMat);
+        hopperFill.position.set(0, 0.32, -0.06);
+        group.add(hopperFill);
+        refs.feederHopperFill = hopperFill;
+
+        const trayOuter = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.135, 0.055, 20), steelMat);
+        trayOuter.position.set(0, 0.028, 0.14);
+        trayOuter.castShadow = true;
+        group.add(trayOuter);
+
+        const trayFill = new THREE.Mesh(new THREE.SphereGeometry(0.095, 14, 10), kibbleMat);
+        trayFill.scale.set(1, 0.28, 1);
+        trayFill.position.set(0, 0.048, 0.14);
+        group.add(trayFill);
+        refs.feederTrayFill = trayFill;
+
+        const drop = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), kibbleMat);
+        drop.position.set(0, 0.12, 0.12);
+        drop.visible = false;
+        group.add(drop);
+        refs.feederDispenseDrop = drop;
+        break;
+      }
+
+      // ITEM 3: AUTOMATIC LITTER BOX (modern dome + rotating inner cleaning drum + safety LED)
+      case 'auto_litter_box': {
+        const bodyMat = new THREE.MeshStandardMaterial({ color: '#ece7df', roughness: 0.4 });
+        const trimMat = new THREE.MeshStandardMaterial({ color: '#b5aa9d', roughness: 0.55 });
+        const sandMat = new THREE.MeshStandardMaterial({ color: '#dcd2c0', roughness: 0.95 });
+
+        const drawer = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.14, 0.54), trimMat);
+        drawer.position.y = 0.07;
+        drawer.castShadow = true;
+        drawer.receiveShadow = true;
+        group.add(drawer);
+
+        const drumPivot = new THREE.Group();
+        drumPivot.position.set(0, 0.36, 0);
+        const drumShell = new THREE.Mesh(
+          new THREE.SphereGeometry(0.29, 20, 16, 0, Math.PI * 2, 0, Math.PI * 0.72),
+          bodyMat
+        );
+        drumShell.rotation.x = -Math.PI / 2.2;
+        drumShell.castShadow = true;
+        drumPivot.add(drumShell);
+
+        const innerSand = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.2, 0.05, 18), sandMat);
+        innerSand.position.y = -0.14;
+        drumPivot.add(innerSand);
+        group.add(drumPivot);
+        refs.autoLitterDrum = drumPivot;
+        refs.litterSandMat = sandMat;
+
+        const ledMat = new THREE.MeshStandardMaterial({
+          color: '#5cc47a',
+          emissive: '#4cb86b',
+          emissiveIntensity: 0.9
+        });
+        const led = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), ledMat);
+        led.position.set(0.22, 0.12, 0.27);
+        group.add(led);
+        refs.autoLitterLedMat = ledMat;
+        break;
+      }
+
+      // ITEM 4: SMART CAT BED (heated ergonomic shell + soft LED warmth halo)
+      case 'smart_cat_bed': {
+        const shellMat = new THREE.MeshStandardMaterial({ color: '#dfd1c0', roughness: 0.65 });
+        const plushMat = new THREE.MeshStandardMaterial({
+          map: createWovenFabricTexture('#f6efe5'),
+          roughness: 0.96
+        });
+        const glowMat = new THREE.MeshStandardMaterial({
+          color: '#f2b86d',
+          emissive: '#f2a54b',
+          emissiveIntensity: 0.55
+        });
+
+        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.36, 0.14, 26), shellMat);
+        pod.position.y = 0.07;
+        pod.castShadow = true;
+        pod.receiveShadow = true;
+        group.add(pod);
+
+        const cushion = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.32, 0.08, 24), plushMat);
+        cushion.position.y = 0.11;
+        cushion.receiveShadow = true;
+        group.add(cushion);
+
+        const rimBack = new THREE.Mesh(
+          new THREE.TorusGeometry(0.34, 0.07, 12, 26, Math.PI * 1.4),
+          shellMat
+        );
+        rimBack.rotation.x = Math.PI / 2;
+        rimBack.rotation.z = Math.PI * 0.8;
+        rimBack.position.y = 0.18;
+        rimBack.castShadow = true;
+        group.add(rimBack);
+
+        const glowRing = new THREE.Mesh(new THREE.TorusGeometry(0.37, 0.012, 8, 28), glowMat);
+        glowRing.rotation.x = Math.PI / 2;
+        glowRing.position.y = 0.03;
+        group.add(glowRing);
+        refs.smartBedGlowMat = glowMat;
+        break;
+      }
+
+      // ITEM 5: AUTOMATIC CAT TOY (motorized spinning feather teaser!)
+      case 'auto_cat_toy': {
+        const baseMat = new THREE.MeshStandardMaterial({ color: '#e59a72', roughness: 0.45 });
+        const rodMat = new THREE.MeshStandardMaterial({ color: '#d9d3ca', metalness: 0.4, roughness: 0.35 });
+        const featherMat = new THREE.MeshStandardMaterial({ color: '#f2c16b', roughness: 0.8 });
+
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.12, 20), baseMat);
+        base.position.y = 0.06;
+        base.castShadow = true;
+        group.add(base);
+
+        const armPivot = new THREE.Group();
+        armPivot.position.set(0, 0.13, 0);
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.007, 0.34, 8), rodMat);
+        rod.position.set(0.11, 0.12, 0);
+        rod.rotation.z = -0.72;
+        armPivot.add(rod);
+
+        const feather = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.09, 6), featherMat);
+        feather.position.set(0.24, 0.21, 0);
+        feather.rotation.z = Math.PI;
+        armPivot.add(feather);
+
+        group.add(armPivot);
+        refs.autoToyArmPivot = armPivot;
+        break;
+      }
+
       default: {
         const box = new THREE.Mesh(
           new THREE.BoxGeometry(item?.width ?? 0.5, item?.height ?? 0.4, item?.depth ?? 0.5),
@@ -615,7 +825,9 @@ export class RoomBuilder {
     placedList: PlacedFurniture[],
     roomStatus: RoomStatus,
     selectedInstanceId: string | null,
-    decorateMode: boolean
+    decorateMode: boolean,
+    equipment?: EquipmentStateMap,
+    clockSec = 0
   ): void {
     const activeIds = new Set(placedList.map((f) => f.instanceId));
 
@@ -656,7 +868,11 @@ export class RoomBuilder {
         ref.waterFillMesh.position.y = 0.032 + ratio * 0.036;
       }
       if (ref.litterSandMat) {
-        const clean = roomStatus.litterCleanliness / 100;
+        const cleanVal =
+          placed.catalogId === 'auto_litter_box' && equipment
+            ? equipment.autoLitterBox.litterCleanliness
+            : roomStatus.litterCleanliness;
+        const clean = cleanVal / 100;
         ref.litterSandMat.color.setRGB(
           0.74 + clean * 0.13,
           0.68 + clean * 0.15,
@@ -670,6 +886,72 @@ export class RoomBuilder {
         } else {
           ref.tableMugGroup.position.set(0.24, 0.425, 0.08);
           ref.tableMugGroup.rotation.set(0, 0, 0);
+        }
+      }
+
+      // Automatic Equipment live animations!
+      if (equipment) {
+        if (ref.fountainStreamMesh && ref.fountainPoolMesh) {
+          const wf = equipment.waterFountain;
+          ref.fountainStreamMesh.visible = wf.isFlowing && wf.waterLevel > 5;
+          if (ref.fountainStreamMesh.visible) {
+            const pulse = 0.88 + Math.sin(clockSec * 18) * 0.14;
+            ref.fountainStreamMesh.scale.set(pulse, 1, pulse);
+          }
+          const levelRatio = Math.max(0, Math.min(1, wf.waterLevel / 100));
+          ref.fountainPoolMesh.visible = levelRatio > 0.03;
+          ref.fountainPoolMesh.position.y = 0.095 + levelRatio * 0.048;
+        }
+
+        if (ref.feederHopperFill && ref.feederTrayFill && ref.feederDispenseDrop) {
+          const af = equipment.autoFeeder;
+          const hopRatio = Math.max(0, Math.min(1, af.storedServings / Math.max(1, af.maxStorage)));
+          ref.feederHopperFill.visible = hopRatio > 0.01;
+          ref.feederHopperFill.scale.y = Math.max(0.08, hopRatio);
+          ref.feederHopperFill.position.y = 0.18 + hopRatio * 0.14;
+
+          const trayRatio = Math.max(0, Math.min(1, af.bowlServingsLevel / 100));
+          ref.feederTrayFill.visible = trayRatio > 0.04;
+          ref.feederTrayFill.scale.set(0.6 + trayRatio * 0.4, 0.15 + trayRatio * 0.22, 0.6 + trayRatio * 0.4);
+
+          ref.feederDispenseDrop.visible = af.dispensingAnimTimer > 0;
+          if (ref.feederDispenseDrop.visible) {
+            const fall = (clockSec * 4) % 1;
+            ref.feederDispenseDrop.position.y = 0.16 - fall * 0.11;
+          }
+        }
+
+        if (ref.autoLitterDrum && ref.autoLitterLedMat) {
+          const al = equipment.autoLitterBox;
+          // Smooth rotating cleaning drum ONLY when safe & cat is not inside
+          ref.autoLitterDrum.rotation.z = al.isCleaning
+            ? Math.sin(al.cleaningProgress * Math.PI) * 1.45
+            : 0;
+          if (al.wasteLevel >= 90) {
+            ref.autoLitterLedMat.color.set('#d9534f');
+            ref.autoLitterLedMat.emissive.set('#c93d39');
+          } else if (al.isCleaning) {
+            ref.autoLitterLedMat.color.set('#5fa8d3');
+            ref.autoLitterLedMat.emissive.set('#3d8cb8');
+          } else if (al.kittenSafeLock || al.catInside) {
+            ref.autoLitterLedMat.color.set('#e5b44e');
+            ref.autoLitterLedMat.emissive.set('#d99f2b');
+          } else {
+            ref.autoLitterLedMat.color.set('#5cc47a');
+            ref.autoLitterLedMat.emissive.set('#4cb86b');
+          }
+        }
+
+        if (ref.smartBedGlowMat) {
+          const sb = equipment.smartCatBed;
+          ref.smartBedGlowMat.emissiveIntensity =
+            0.25 + sb.warmthLevel * 0.22 + (sb.occupied ? Math.sin(clockSec * 2.4) * 0.12 : 0);
+        }
+
+        if (ref.autoToyArmPivot) {
+          const at = equipment.autoCatToy;
+          ref.autoToyArmPivot.rotation.y = at.armAngle;
+          ref.autoToyArmPivot.rotation.z = at.enabled ? Math.sin(clockSec * 9) * 0.1 : 0;
         }
       }
     }

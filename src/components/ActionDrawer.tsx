@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Coins,
   Compass,
+  Cpu,
   Droplets,
   Feather,
   Fish,
@@ -14,26 +15,35 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Truck,
   UserCircle2,
   Utensils,
-  X
+  X,
+  Zap
 } from 'lucide-react';
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import {
   ACCESSORY_CATALOG,
   FOOD_CATALOG,
   FURNITURE_CATALOG,
   TOY_CATALOG
 } from '../config/catalog';
+import { ECONOMY_CONFIG } from '../config/economy';
 import { UI_TEXT } from '../i18n/translations';
+import {
+  formatClockTime,
+  formatCountdownMmSs,
+  getEnergyRegenInfo
+} from '../simulation/energy';
 import { computeGrowthMetrics, isFoodSafeForAge } from '../simulation/growth';
 import { useGameStore } from '../store/useGameStore';
+import { MinigameId } from '../types/game';
 
 interface ActionDrawerProps {
   onFocusCat: () => void;
 }
 
-type ShopCategory = 'food' | 'toys' | 'beds' | 'furniture' | 'accessories';
+type ShopCategory = 'food' | 'equipment' | 'toys' | 'beds' | 'furniture' | 'accessories';
 
 export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
   const state = useGameStore();
@@ -44,6 +54,8 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
     room,
     settings,
     coins,
+    playerEnergy,
+    activeCareAction,
     foodInventory,
     ownedAccessories,
     ownedFurniture,
@@ -57,8 +69,11 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
 
   if (!drawerOpen) return null;
 
+  const isActionBusy = activeCareAction !== null;
   const metrics = computeGrowthMetrics(cat.identity.breed, cat.ageDays);
   const claimableCount = dailyTasks.filter((d) => !d.claimed && d.progress >= d.target).length;
+  const energyInfo = getEnergyRegenInfo(playerEnergy, Date.now());
+  const canStartMinigame = energyInfo.current >= ECONOMY_CONFIG.MINIGAME_ENERGY_COST;
 
   const titles = {
     care: t.navCare,
@@ -67,6 +82,56 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
     shop: t.navShop,
     minigames: t.navMinigames
   };
+
+  const minigameList: {
+    id: MinigameId;
+    titleTh: string;
+    titleEn: string;
+    descTh: string;
+    descEn: string;
+    icon: ReactNode;
+  }[] = [
+    {
+      id: 'fishing',
+      titleTh: 'ตกปลาให้น้องแมว (Fishing)',
+      titleEn: 'Cozy Pond Fishing',
+      descTh: 'ลากทุ่นเบ็ดและกะจังหวะดึงเมื่อปลางับเหยื่อ ภายใน 60 วินาที',
+      descEn: 'Drag your bobber & hook biting fish over a 60s round!',
+      icon: <Fish size={17} color="#4e8eb2" />
+    },
+    {
+      id: 'matching',
+      titleTh: 'จับคู่ของเล่นแมว (Matching)',
+      titleEn: 'Cat Matching Puzzle',
+      descTh: 'เปิดการ์ดจับคู่ของใช้น้องแมวต่อเนื่อง 60 วินาทีเพื่อทำคอมโบ',
+      descEn: 'Match cat-themed tiles across continuous rounds in 60s!',
+      icon: <Grid2x2 size={17} color="#c87a56" />
+    },
+    {
+      id: 'toy_challenge',
+      titleTh: 'ตะครุบของเล่น (Toy Challenge)',
+      titleEn: 'Cat Toy Challenge',
+      descTh: 'แตะตะครุบขนนก หนู และจุดเลเซอร์ให้ไวที่สุด หลบกระบองเพชร!',
+      descEn: 'Tap moving feathers, mice & laser dots fast while avoiding cacti!',
+      icon: <Feather size={17} color="#d49a42" />
+    },
+    {
+      id: 'delivery',
+      titleTh: 'ส่งอาหารแมวด่วน (Delivery)',
+      titleEn: 'Cat Supply Delivery',
+      descTh: 'แตะสลับเลนส่งกล่องอาหารและปลาแซลมอน หลบสิ่งกีดขวาง 60 วินาที',
+      descEn: 'Tap lanes to deliver cat food parcels & salmon while dodging cones!',
+      icon: <Truck size={17} color="#c87a56" />
+    },
+    {
+      id: 'clean_room',
+      titleTh: 'จัดเก็บห้องนั่งเล่น (Room Cleaning)',
+      titleEn: 'Room Cleaning Challenge',
+      descTh: 'จัดเก็บของเล่น ชาม และหมอนเข้าที่ให้ได้หลายรอบที่สุดใน 60 วินาที',
+      descEn: 'Sort scattered toys, bowls & pillows across waves in 60s!',
+      icon: <Sparkles size={17} color="#6d9575" />
+    }
+  ];
 
   return (
     <section className="action-drawer ui-interactive" aria-label={titles[activeTab]}>
@@ -82,33 +147,48 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
         </button>
       </div>
 
-      {/* TAB 1: CARE & HOME TOOLS */}
+      {/* TAB 1: CARE & HOME TOOLS (Zero Coins; visible 3D hand animations; disabled while running) */}
       {activeTab === 'care' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="action-grid">
-            <button type="button" className="action-card" onClick={() => state.petCat()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.petCat()}
+            >
               <div className="action-card-top">
                 <Heart size={16} color="#cf6f72" />
                 <span className="badge warm">+Trust</span>
               </div>
               <span className="action-card-title">{t.petCat}</span>
               <span className="action-card-sub">
-                {lang === 'th' ? 'ลูบเบาๆ อย่ารบกวนตอนหลับ' : 'Gentle petting (respect sleep)'}
+                {lang === 'th' ? 'ยื่นมือลูบเบาๆ อย่ารบกวนตอนหลับ' : 'Stroke gently by hand (respect sleep)'}
               </span>
             </button>
 
-            <button type="button" className="action-card" onClick={() => state.respectCatSpace()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.respectCatSpace()}
+            >
               <div className="action-card-top">
                 <ShieldCheck size={16} color="#6d9575" />
                 <span className="badge sage">Calm</span>
               </div>
               <span className="action-card-title">{t.respectSpace}</span>
               <span className="action-card-sub">
-                {lang === 'th' ? 'ช่วยปลอบเมื่อแมวกลัวหรือขู่' : 'Calms fear & overstimulation'}
+                {lang === 'th' ? 'ลดความเครียดเมื่อแมวขู่หรือกลัว' : 'Calms stress & defensive mood'}
               </span>
             </button>
 
-            <button type="button" className="action-card" onClick={() => state.brushCat()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.brushCat()}
+            >
               <div className="action-card-top">
                 <Sparkles size={16} color="#d49a42" />
                 <span className="badge sage">Fluffy</span>
@@ -116,7 +196,12 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               <span className="action-card-title">{t.brushCat}</span>
             </button>
 
-            <button type="button" className="action-card" onClick={() => state.tuckCatToSleep()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.tuckCatToSleep()}
+            >
               <div className="action-card-top">
                 <Moon size={16} color="#6b7ba4" />
                 <span className="badge">Rest</span>
@@ -124,7 +209,12 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               <span className="action-card-title">{t.tuckSleep}</span>
             </button>
 
-            <button type="button" className="action-card" onClick={() => state.cleanLitterBox()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.cleanLitterBox()}
+            >
               <div className="action-card-top">
                 <Trash2 size={16} color="#6d9575" />
                 <span className={`badge ${room.litterCleanliness < 45 ? 'warn' : 'sage'}`}>
@@ -134,7 +224,12 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               <span className="action-card-title">{t.cleanLitter}</span>
             </button>
 
-            <button type="button" className="action-card" onClick={() => state.cleanLivingArea()}>
+            <button
+              type="button"
+              className="action-card"
+              disabled={isActionBusy}
+              onClick={() => state.cleanLivingArea()}
+            >
               <div className="action-card-top">
                 <Sparkles size={16} color="#5f9bb8" />
                 <span className={`badge ${room.tableMugKnocked ? 'warn' : 'sage'}`}>
@@ -149,8 +244,16 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
             </button>
           </div>
 
-          {/* Quick Home / Profile / Decorate / Album / Tasks Row */}
           <div className="chip-group">
+            <button
+              type="button"
+              className="chip-btn"
+              onClick={() => state.setShowEquipmentModal(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Cpu size={13} />
+              {t.smartDevices}
+            </button>
             <button
               type="button"
               className="chip-btn"
@@ -217,6 +320,7 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               <button
                 type="button"
                 className="btn-secondary"
+                disabled={isActionBusy}
                 onClick={() => state.giveWater()}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
               >
@@ -234,6 +338,7 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
                 <button
                   key={item.id}
                   type="button"
+                  disabled={isActionBusy}
                   className={`action-card ${!check.allowed || stock <= 0 ? 'locked' : ''}`}
                   onClick={() => {
                     if (stock <= 0) {
@@ -328,13 +433,14 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
         </div>
       )}
 
-      {/* TAB 4: SHOP (FOOD, TOYS, BEDS, FURNITURE, ACCESSORIES) */}
+      {/* TAB 4: SHOP (FOOD, AUTOMATIC EQUIPMENT, TOYS, BEDS, FURNITURE, ACCESSORIES) */}
       {activeTab === 'shop' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="chip-group">
             {(
               [
                 { id: 'food', th: 'อาหาร', en: 'Food' },
+                { id: 'equipment', th: 'อุปกรณ์อัตโนมัติ', en: 'Auto Gear' },
                 { id: 'toys', th: 'ของเล่น', en: 'Toys' },
                 { id: 'beds', th: 'ที่นอน', en: 'Beds' },
                 { id: 'furniture', th: 'เฟอร์นิเจอร์', en: 'Furniture' },
@@ -382,6 +488,62 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
               );
             })}
 
+          {shopCat === 'equipment' &&
+            FURNITURE_CATALOG.filter((f) => f.isAutoEquipment).map((item) => {
+              const ownedCount = ownedFurniture[item.id] ?? 0;
+              const placedCount = state.placedFurniture.filter((p) => p.catalogId === item.id).length;
+              const canPlace = ownedCount > placedCount;
+              const isOwned = ownedCount >= 1;
+
+              return (
+                <div key={item.id} className="section-box">
+                  <div className="row-between">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+                        {lang === 'th' ? item.nameTh : item.nameEn}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: '#756355', marginTop: 2 }}>
+                        {lang === 'th' ? item.descTh : item.descEn}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      {placedCount > 0 && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => state.setShowEquipmentModal(true)}
+                        >
+                          {lang === 'th' ? 'ตั้งค่า' : 'Manage'}
+                        </button>
+                      )}
+                      {canPlace && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => state.startPlacingFurniture(item.id)}
+                        >
+                          {t.place}
+                        </button>
+                      )}
+                      {!isOwned ? (
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={coins < item.priceCoins}
+                          onClick={() => state.buyFurniture(item.id)}
+                          style={{ opacity: coins < item.priceCoins ? 0.5 : 1 }}
+                        >
+                          {item.priceCoins}c
+                        </button>
+                      ) : (
+                        placedCount === 0 && !canPlace && <span className="badge sage">{t.owned}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
           {shopCat === 'toys' &&
             TOY_CATALOG.filter((toy) => toy.priceCoins > 0).map((toy) => {
               const isOwned = ownedToys.includes(toy.id);
@@ -416,7 +578,9 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
 
           {(shopCat === 'beds' || shopCat === 'furniture') &&
             FURNITURE_CATALOG.filter((f) =>
-              shopCat === 'beds' ? f.category === 'bed' && f.priceCoins > 0 : f.category !== 'bed' && f.priceCoins > 0
+              shopCat === 'beds'
+                ? f.category === 'bed' && f.priceCoins > 0
+                : f.category !== 'bed' && !f.isAutoEquipment && f.priceCoins > 0
             ).map((item) => {
               const ownedCount = ownedFurniture[item.id] ?? 0;
               const placedCount = state.placedFurniture.filter((p) => p.catalogId === item.id).length;
@@ -525,70 +689,58 @@ export function ActionDrawer({ onFocusCat }: ActionDrawerProps) {
         </div>
       )}
 
-      {/* TAB 5: PLAYABLE MINIGAMES (FREE COIN EARNING!) */}
+      {/* TAB 5: 5 PLAYABLE 60s MINIGAMES (ENERGY-GATED: 5 ENERGY PER GAME) */}
       {activeTab === 'minigames' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 11, color: '#6b5546' }}>✨ {t.earnCoinsFree}</div>
-
-          <button
-            type="button"
-            className="action-card"
-            onClick={() => state.openMinigame('fishing')}
-            style={{ width: '100%' }}
-          >
-            <div className="action-card-top">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
-                <Fish size={17} color="#4e8eb2" />
-                {lang === 'th' ? 'ตกปลาให้น้องแมว (Fishing)' : 'Cozy Pond Fishing'}
+          <div className="section-box" style={{ background: '#fbf4ea', fontSize: 11, gap: 4 }}>
+            <div className="row-between">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+                <Zap size={13} fill="#d49a42" color="#d49a42" />
+                {t.energyLabel} {energyInfo.current}/{energyInfo.max}
               </span>
-              <span className="badge warm">+20–75c</span>
-            </div>
-            <span className="action-card-sub">
-              {lang === 'th'
-                ? 'แตะและลากเบ็ด กะจังหวะดึงเมื่อปลางับเหยื่อ จับปลาทู แซลมอน และปลาคาร์ปทอง!'
-                : 'Drag your bobber and hook swimming fish on bite timing for big Coin rewards!'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="action-card"
-            onClick={() => state.openMinigame('matching')}
-            style={{ width: '100%' }}
-          >
-            <div className="action-card-top">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
-                <Grid2x2 size={17} color="#c87a56" />
-                {lang === 'th' ? 'จับคู่ของเล่นแมว (Matching Puzzle)' : 'Cat Item Matching Puzzle'}
+              <span style={{ color: '#6b5546', fontWeight: 600 }}>
+                {energyInfo.isFull
+                  ? lang === 'th'
+                    ? 'พร้อมเล่นเต็มที่'
+                    : 'Full Energy'
+                  : lang === 'th'
+                    ? `+1 ใน ${formatCountdownMmSs(energyInfo.msUntilNextEnergy)} (${formatClockTime(energyInfo.nextEnergyAtUtc!)})`
+                    : `+1 in ${formatCountdownMmSs(energyInfo.msUntilNextEnergy)} (${formatClockTime(energyInfo.nextEnergyAtUtc!)})`}
               </span>
-              <span className="badge warm">+25–65c</span>
             </div>
-            <span className="action-card-sub">
-              {lang === 'th'
-                ? 'เปิดการ์ดจับคู่ของใช้น้องแมว 3 ระดับความยาก พร้อมโบนัสคอมโบและเวลา!'
-                : 'Match cat-themed tiles across increasing difficulty levels with combo bonuses!'}
-            </span>
-          </button>
+            <div style={{ color: '#6b5546' }}>✨ {t.minigameEnergyInfo}</div>
+            {!canStartMinigame && (
+              <div style={{ color: '#a13a3c', fontWeight: 700 }}>
+                {lang === 'th'
+                  ? `⚠️ พลังงานไม่พอ (ต้องการ 5 Energy) • เล่นรอบถัดไปได้ใน ${formatCountdownMmSs(energyInfo.msUntilEnoughForMinigame)}`
+                  : `⚠️ Not enough Energy (requires 5). Enough Energy in ${formatCountdownMmSs(energyInfo.msUntilEnoughForMinigame)}.`}
+              </div>
+            )}
+          </div>
 
-          <button
-            type="button"
-            className="action-card"
-            onClick={() => state.openMinigame('clean_room')}
-            style={{ width: '100%' }}
-          >
-            <div className="action-card-top">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
-                <Sparkles size={17} color="#6d9575" />
-                {lang === 'th' ? 'จัดเก็บห้องนั่งเล่น (Clean the Room)' : 'Clean the Room (Free)'}
+          {minigameList.map((mg) => (
+            <button
+              key={mg.id}
+              type="button"
+              className={`action-card ${!canStartMinigame ? 'locked' : ''}`}
+              onClick={() => state.startMinigame(mg.id)}
+              style={{ width: '100%' }}
+            >
+              <div className="action-card-top">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
+                  {mg.icon}
+                  {lang === 'th' ? mg.titleTh : mg.titleEn}
+                </span>
+                <span style={{ display: 'inline-flex', gap: 4 }}>
+                  <span className="badge">⚡5</span>
+                  <span className="badge warm">15–45c</span>
+                </span>
+              </div>
+              <span className="action-card-sub">
+                {lang === 'th' ? mg.descTh : mg.descEn}
               </span>
-              <span className="badge sage">+20–40c</span>
-            </div>
-            <span className="action-card-sub">
-              {lang === 'th'
-                ? 'แตะและลากของเล่น/ชาม/เบาะกลับเข้าที่ให้เรียบร้อย เล่นซ้ำได้ฟรีไม่จำกัด!'
-                : 'Tap & drag scattered toys and cushions back into place. Free unlimited Coins!'}
-            </span>
-          </button>
+            </button>
+          ))}
         </div>
       )}
     </section>
