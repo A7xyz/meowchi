@@ -4,12 +4,15 @@ import { getCatalogItem, ROOM_HALF_DEPTH, ROOM_HALF_WIDTH } from '../config/cata
 import { validateFurniturePlacement } from '../simulation/collision';
 import { clamp, computeGrowthMetrics } from '../simulation/growth';
 import { useGameStore } from '../store/useGameStore';
+import { useOnlineStore } from '../store/useOnlineStore';
 import {
+  AccessoryId,
   CatIdentity,
   HumanAppearance,
   HumanGender,
   LifeStage,
   PlacedFurniture,
+  RoomStatus,
   ToyType,
   Vec2,
   Vec3
@@ -69,6 +72,11 @@ export class MeowchiPhaserScene extends Phaser.Scene {
   private catAccessoryGfx!: Phaser.GameObjects.Graphics;
   private humanSprite!: Phaser.GameObjects.Sprite;
   private humanShadow!: Phaser.GameObjects.Ellipse;
+  private hostHumanSprite!: Phaser.GameObjects.Sprite;
+  private hostHumanShadow!: Phaser.GameObjects.Ellipse;
+  private hostNameTag!: Phaser.GameObjects.Text;
+  private visitorNameTag!: Phaser.GameObjects.Text;
+  private waveBubbleTag!: Phaser.GameObjects.Text;
   private statusFxGfx!: Phaser.GameObjects.Graphics;
   private dustGfx!: Phaser.GameObjects.Graphics;
 
@@ -97,10 +105,13 @@ export class MeowchiPhaserScene extends Phaser.Scene {
   private customTextureLru: string[] = [];
   private activeCatAnimKey = '';
   private activeHumanAnimKey = '';
+  private activeHostAnimKey = '';
   private lastCatCoatSig = '';
   private lastHumanAppSig = '';
+  private lastHostAppSig = '';
   private lastLoadedGender: HumanGender = 'female';
   private pendingSoundPos: Vec2 | null = null;
+  private lastVisitParticleSeq = 0;
 
   // Particles & ambient motes
   private particles: Particle2D[] = [];
@@ -196,6 +207,34 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     this.humanShadow = this.add.ellipse(360, 780, 96, 30, 0x3b2a1c, 0.24).setDepth(50);
     this.humanSprite = this.add.sprite(360, 780, getHumanAtlasKey(this.lastLoadedGender, 'idle'));
     this.humanSprite.setOrigin(0.5, 0.94);
+
+    // Host Chibi & Nameplates (shown during Online Home Visits!)
+    this.hostHumanShadow = this.add.ellipse(260, 720, 96, 30, 0x3b2a1c, 0.24).setDepth(48).setVisible(false);
+    this.hostHumanSprite = this.add
+      .sprite(260, 720, getHumanAtlasKey(this.lastLoadedGender, 'idle'))
+      .setOrigin(0.5, 0.94)
+      .setVisible(false);
+
+    const tagStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+      fontFamily: 'Noto Sans Thai, Plus Jakarta Sans, sans-serif',
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#3b2f27',
+      backgroundColor: 'rgba(255, 250, 243, 0.88)',
+      padding: { x: 8, y: 3 }
+    };
+    this.hostNameTag = this.add.text(0, 0, '', tagStyle).setOrigin(0.5, 1).setDepth(960).setVisible(false);
+    this.visitorNameTag = this.add.text(0, 0, '', tagStyle).setOrigin(0.5, 1).setDepth(962).setVisible(false);
+    this.waveBubbleTag = this.add
+      .text(0, 0, '', {
+        ...tagStyle,
+        fontSize: '16px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(200, 122, 86, 0.94)'
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(970)
+      .setVisible(false);
 
     this.catShadow = this.add.ellipse(320, 820, 82, 26, 0x3b2a1c, 0.24).setDepth(50);
     this.catSprite = this.add.sprite(320, 820, getCatAtlasKey('idle'));
@@ -447,6 +486,41 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     }
   }
 
+  private playHostHumanAction(action: HumanSpriteAction, appearance: HumanAppearance): void {
+    const gender = appearance.gender;
+    let resolvedBaseKey = getHumanAtlasKey(gender, action);
+    if (!this.loadedAtlases.has(resolvedBaseKey)) {
+      this.requestHumanAtlas(gender, action);
+      const fallbackKey = getHumanAtlasKey(gender, 'idle');
+      if (this.loadedAtlases.has(fallbackKey)) {
+        resolvedBaseKey = fallbackKey;
+      } else {
+        this.requestHumanAtlas(gender, 'idle');
+        const otherKey = getHumanAtlasKey(gender === 'female' ? 'male' : 'female', 'idle');
+        if (this.loadedAtlases.has(otherKey)) {
+          resolvedBaseKey = otherKey;
+        } else {
+          return;
+        }
+      }
+    }
+
+    const appSig = getHumanAppearanceSignature(appearance);
+    const def = HUMAN_SPRITE_ACTIONS[action];
+    const animKey = this.ensureCustomizedAnim(
+      resolvedBaseKey,
+      `${resolvedBaseKey}__${appSig}`,
+      (img) => createCustomizedHumanCanvas(img, appearance),
+      def.fps,
+      def.loop
+    );
+
+    if (this.activeHostAnimKey !== animKey || !this.hostHumanSprite.anims.isPlaying) {
+      this.activeHostAnimKey = animKey;
+      this.hostHumanSprite.play(animKey, true);
+    }
+  }
+
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     this.pointerDownPos = { x: pointer.worldX, y: pointer.worldY, time: performance.now() };
     const state = useGameStore.getState();
@@ -528,8 +602,20 @@ export class MeowchiPhaserScene extends Phaser.Scene {
   }
 
   private handleTap(sx: number, sy: number): void {
-    const state = useGameStore.getState();
+    const online = useOnlineStore.getState();
     const wp = screenToWorld(sx, sy);
+
+    // Visit Mode tap controls: tap host's cat to pet, or tap anywhere on floor to walk around!
+    if (online.visitState) {
+      if (this.catSprite.visible && this.catSprite.getBounds().contains(sx, sy)) {
+        online.petVisitedCat();
+        return;
+      }
+      online.moveVisitorTo(wp.x, wp.z);
+      return;
+    }
+
+    const state = useGameStore.getState();
 
     // 1. Decorate Mode placement & selection
     if (state.decorateMode) {
@@ -692,8 +778,10 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     }
   }
 
-  private syncFurniture(placed: PlacedFurniture[]): void {
+  private syncFurniture(placed: PlacedFurniture[], roomOverride?: RoomStatus): void {
     const state = useGameStore.getState();
+    const activeRoom = roomOverride ?? state.room;
+    const isVisiting = Boolean(roomOverride);
     const keepIds = new Set(placed.map((p) => p.instanceId));
 
     // Remove deleted items
@@ -717,7 +805,7 @@ export class MeowchiPhaserScene extends Phaser.Scene {
 
       // Dynamic empty vs full ceramic food bowl swap!
       const frame =
-        f.catalogId === 'food_bowl_ceramic' && state.room.foodBowlLevel > 5
+        f.catalogId === 'food_bowl_ceramic' && activeRoom.foodBowlLevel > 5
           ? 'food_bowl_full'
           : propInfo.frame;
 
@@ -751,7 +839,7 @@ export class MeowchiPhaserScene extends Phaser.Scene {
       fv.shadow.setDepth(depth - 2);
 
       // Selection highlight in decorate mode
-      if (state.decorateMode && state.selectedFurnitureInstanceId === f.instanceId) {
+      if (!isVisiting && state.decorateMode && state.selectedFurnitureInstanceId === f.instanceId) {
         fv.sprite.setTint(0xffe7b8);
       } else {
         fv.sprite.clearTint();
@@ -1007,9 +1095,15 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     }
   }
 
-  private drawCatAccessory(x: number, y: number, scale: number, facingRight: boolean): void {
+  private drawCatAccessory(
+    x: number,
+    y: number,
+    scale: number,
+    facingRight: boolean,
+    accessoryOverride?: AccessoryId
+  ): void {
     this.catAccessoryGfx.clear();
-    const acc = useGameStore.getState().cat.identity.equippedAccessory;
+    const acc = accessoryOverride ?? useGameStore.getState().cat.identity.equippedAccessory;
     if (acc === 'none' || !this.catSprite.visible) return;
     const dir = facingRight ? 1 : -1;
     const neckX = x + dir * 24 * scale;
@@ -1056,9 +1150,169 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     });
   }
 
+  private updateVisitMode(dt: number): void {
+    const online = useOnlineStore.getState();
+    const vs = online.visitState;
+    if (!vs) return;
+
+    online.stepVisitSimulation(dt);
+    const freshOnline = useOnlineStore.getState();
+    const cur = freshOnline.visitState;
+    if (!cur) return;
+
+    const myState = useGameStore.getState();
+
+    // Hide toys & placement preview during visit
+    this.toyWandGfx.clear();
+    this.toyFeatherSprite.setVisible(false);
+    this.toyBallSprite.setVisible(false);
+    this.toyMouseSprite.setVisible(false);
+    if (this.previewSprite) this.updatePlacementPreview(null, 0, 0, true);
+
+    // 1. Render Host's Furniture & Ambient Equipment Glow
+    this.syncFurniture(cur.home.placedFurniture, cur.home.roomStatus);
+    this.statusFxGfx.clear();
+    for (const f of cur.home.placedFurniture) {
+      const pt = worldToScreen(f.x, f.z, 0);
+      if (f.catalogId === 'auto_water_fountain') {
+        const pulse = Math.sin(this.elapsedSec * 7) * 4;
+        this.statusFxGfx.fillStyle(0xbde9ff, 0.78);
+        this.statusFxGfx.fillCircle(pt.x - 4, pt.groundY - 58 + pulse, 3.2);
+        this.statusFxGfx.fillCircle(pt.x + 5, pt.groundY - 52 - pulse * 0.7, 2.6);
+      } else if (f.catalogId === 'smart_cat_bed') {
+        const glow = 0.14 + Math.sin(this.elapsedSec * 2.4) * 0.06;
+        this.statusFxGfx.fillStyle(0xffbe66, glow);
+        this.statusFxGfx.fillEllipse(pt.x, pt.groundY - 34, 86 * pt.depthScale, 46 * pt.depthScale);
+      }
+    }
+
+    // 2. Render Host's Chibi Human
+    const hostProj = worldToScreen(cur.hostPosition.x, cur.hostPosition.z, 0);
+    const hostFacingRight = Math.sin(cur.hostRotationY) >= -0.05;
+    this.hostHumanSprite.setVisible(true);
+    this.hostHumanShadow.setVisible(true);
+    this.hostHumanSprite.setPosition(hostProj.x, hostProj.y);
+    this.hostHumanSprite.setScale(0.86 * hostProj.depthScale);
+    this.hostHumanSprite.setFlipX(!hostFacingRight);
+    this.hostHumanSprite.setDepth(computeDepth(hostProj.groundY, 11));
+    this.hostHumanShadow.setPosition(hostProj.x, hostProj.groundY - 4);
+    this.hostHumanShadow.setSize(94 * hostProj.depthScale, 28 * hostProj.depthScale);
+    this.hostHumanShadow.setDepth(computeDepth(hostProj.groundY, 7));
+
+    const hostAppSig = getHumanAppearanceSignature(cur.home.humanAppearance);
+    if (hostAppSig !== this.lastHostAppSig) {
+      this.lastHostAppSig = hostAppSig;
+      this.activeHostAnimKey = '';
+    }
+    this.playHostHumanAction('idle', cur.home.humanAppearance);
+
+    this.hostNameTag
+      .setText(`🏡 ${cur.home.ownerName}`)
+      .setPosition(hostProj.x, hostProj.y - 178 * hostProj.depthScale)
+      .setVisible(true);
+
+    // 3. Render YOUR Visiting Chibi Human
+    const vProj = worldToScreen(cur.visitorPosition.x, cur.visitorPosition.z, 0);
+    const vFacingRight = Math.sin(cur.visitorRotationY) >= -0.05;
+    this.humanSprite.setVisible(true);
+    this.humanShadow.setVisible(true);
+    this.humanSprite.setPosition(vProj.x, vProj.y);
+    this.humanSprite.setScale(0.88 * vProj.depthScale);
+    this.humanSprite.setFlipX(!vFacingRight);
+    this.humanSprite.setDepth(computeDepth(vProj.groundY, 12));
+    this.humanShadow.setPosition(vProj.x, vProj.groundY - 4);
+    this.humanShadow.setSize(96 * vProj.depthScale, 28 * vProj.depthScale);
+    this.humanShadow.setDepth(computeDepth(vProj.groundY, 8));
+
+    const myAppSig = getHumanAppearanceSignature(myState.humanAppearance);
+    if (myAppSig !== this.lastHumanAppSig) {
+      this.lastHumanAppSig = myAppSig;
+      this.activeHumanAnimKey = '';
+    }
+    const vAction: HumanSpriteAction = cur.visitorTarget ? 'walk' : cur.visitorAnim;
+    this.playHumanAction(vAction, myState.humanAppearance);
+
+    this.visitorNameTag
+      .setText(myState.humanAppearance.name || 'You')
+      .setPosition(vProj.x, vProj.y - 180 * vProj.depthScale)
+      .setVisible(true);
+
+    if (cur.waveBubbleText) {
+      this.waveBubbleTag
+        .setText(cur.waveBubbleText)
+        .setPosition(vProj.x, vProj.y - 214 * vProj.depthScale)
+        .setVisible(true);
+    } else {
+      this.waveBubbleTag.setVisible(false);
+    }
+
+    // 4. Render Host's Fluffy Cat!
+    const cProj = worldToScreen(cur.hostCatPosition.x, cur.hostCatPosition.z, 0);
+    const cFacingRight = Math.sin(cur.hostCatRotationY) >= -0.05;
+    const growth = computeGrowthMetrics(cur.home.catIdentity.breed, cur.home.catAgeDays);
+    const breedMorph = getBreedDefinition(cur.home.catIdentity.breed).morphology;
+    const baseCatScale = clamp(growth.bodyScale * breedMorph.adultScale, 0.54, 1.18) * 0.82;
+    const scaleX = baseCatScale * cProj.depthScale * (breedMorph.torsoLength > 1.05 ? 1.04 : 1.0);
+    const scaleY = baseCatScale * cProj.depthScale * (breedMorph.legLength < 0.72 ? 0.88 : 1.0);
+
+    this.catSprite.setVisible(true);
+    this.catShadow.setVisible(true);
+    this.catSprite.setPosition(cProj.x, cProj.y);
+    this.catSprite.setScale(scaleX, scaleY);
+    this.catSprite.setFlipX(!cFacingRight);
+    this.catSprite.setDepth(computeDepth(cProj.groundY, 14));
+    this.catShadow.setPosition(cProj.x, cProj.groundY - 4);
+    this.catShadow.setSize(118 * scaleX, 32 * scaleY);
+    this.catShadow.setAlpha(0.24);
+    this.catShadow.setDepth(computeDepth(cProj.groundY, 10));
+
+    const hostCoatSig = getCatCoatSignature(cur.home.catIdentity, cur.home.catLifeStage);
+    if (hostCoatSig !== this.lastCatCoatSig) {
+      this.lastCatCoatSig = hostCoatSig;
+      this.activeCatAnimKey = '';
+    }
+    this.playCatAction(cur.hostCatBehavior, cur.home.catIdentity, cur.home.catLifeStage);
+    this.drawCatAccessory(cProj.x, cProj.y, scaleX, cFacingRight, cur.home.catIdentity.equippedAccessory);
+
+    // 5. Visit particles & sunlit motes
+    if (freshOnline.visitParticleSeq !== this.lastVisitParticleSeq) {
+      this.lastVisitParticleSeq = freshOnline.visitParticleSeq;
+      this.spawnParticles(freshOnline.visitParticleType, cProj.x, cProj.y - 36);
+    }
+    this.updateParticles(dt);
+    this.dustGfx.clear();
+    for (const m of this.dustMotes) {
+      const mx = m.x + Math.sin(this.elapsedSec * m.speed + m.phase) * 14;
+      const my = m.y + Math.cos(this.elapsedSec * m.speed * 0.7 + m.phase) * 10;
+      const alpha = 0.14 + 0.14 * Math.sin(this.elapsedSec * 1.4 + m.phase);
+      this.dustGfx.fillStyle(0xfff6dc, alpha);
+      this.dustGfx.fillCircle(mx, my, m.r);
+    }
+
+    const cam = this.cameras.main;
+    cam.setZoom(Phaser.Math.Linear(cam.zoom, 1.0, clamp(dt * 5, 0, 1)));
+    cam.scrollX = Phaser.Math.Linear(cam.scrollX, 0, clamp(dt * 5, 0, 1));
+    cam.scrollY = Phaser.Math.Linear(cam.scrollY, 0, clamp(dt * 5, 0, 1));
+  }
+
   update(_time: number, deltaMs: number): void {
     const dt = Math.min(0.05, Math.max(0.001, deltaMs / 1000));
     this.elapsedSec += dt;
+
+    // If visiting a friend's or neighbor's home, run dedicated Visit Mode renderer!
+    if (useOnlineStore.getState().visitState) {
+      this.updateVisitMode(dt);
+      return;
+    }
+
+    // Ensure visit-only overlays stay hidden at home
+    if (this.hostHumanSprite.visible) {
+      this.hostHumanSprite.setVisible(false);
+      this.hostHumanShadow.setVisible(false);
+      this.hostNameTag.setVisible(false);
+      this.visitorNameTag.setVisible(false);
+      this.waveBubbleTag.setVisible(false);
+    }
 
     const state = useGameStore.getState();
 

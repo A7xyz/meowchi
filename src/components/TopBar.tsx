@@ -1,4 +1,4 @@
-import { AlertTriangle, Camera, ClipboardList, Coins, Heart, Settings, Zap } from 'lucide-react';
+import { AlertTriangle, Camera, ClipboardList, Coins, Heart, Settings, Users, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   BEHAVIOR_LABELS,
@@ -13,6 +13,7 @@ import {
   getEnergyRegenInfo
 } from '../simulation/energy';
 import { countClaimableQuests, useGameStore } from '../store/useGameStore';
+import { useOnlineStore } from '../store/useOnlineStore';
 
 /**
  * Clean Meowchi Top HUD:
@@ -35,6 +36,9 @@ export function TopBar() {
   const setShowSettings = useGameStore((s) => s.setShowSettings);
   const showToast = useGameStore((s) => s.showToast);
   const syncRealTimeClocks = useGameStore((s) => s.syncRealTimeClocks);
+  const setShowOnlineModal = useOnlineStore((s) => s.setShowOnlineModal);
+  const livePlayersCount = useOnlineStore((s) => s.livePlayers.length);
+  const onlineStatus = useOnlineStore((s) => s.connectionStatus);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -129,6 +133,25 @@ export function TopBar() {
 
           {!isInteracting && (
             <>
+              <div className="icon-btn-wrap">
+                <button
+                  type="button"
+                  className="icon-btn online-top-btn"
+                  onClick={() => setShowOnlineModal(true)}
+                  aria-label={lang === 'th' ? 'ผู้เล่นออนไลน์และเยี่ยมบ้าน' : 'Online Players & Visit Homes'}
+                  title={lang === 'th' ? 'ผู้เล่นออนไลน์ / เยี่ยมบ้าน' : 'Online Players / Visit'}
+                >
+                  <Users size={15} />
+                </button>
+                <span
+                  className={`online-top-dot ${onlineStatus === 'connected' ? 'live' : 'local'}`}
+                  title={
+                    lang === 'th'
+                      ? `ออนไลน์ ${livePlayersCount + 1} คน`
+                      : `${livePlayersCount + 1} online`
+                  }
+                />
+              </div>
               <button
                 type="button"
                 className="icon-btn"

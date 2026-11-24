@@ -19,9 +19,12 @@ import {
   TasksModal
 } from './components/Modals';
 import { TopBar } from './components/TopBar';
+import { OnlinePlayersModal } from './components/OnlinePlayersModal';
+import { VisitModeHud } from './components/VisitModeHud';
 import { GameEngine } from './engine/GameEngine';
 import { UI_TEXT } from './i18n/translations';
 import { useGameStore } from './store/useGameStore';
+import { useOnlineStore } from './store/useOnlineStore';
 
 export function App() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -42,12 +45,15 @@ export function App() {
   const reduceBiteVisuals = useGameStore((s) => s.settings.reduceBiteVisuals);
   const lang = useGameStore((s) => s.settings.language);
   const t = UI_TEXT[lang];
+  const initOnlineService = useOnlineStore((s) => s.initOnlineService);
+  const visitState = useOnlineStore((s) => s.visitState);
 
   const [showBiteOverlay, setShowBiteOverlay] = useState(false);
 
   useEffect(() => {
     hydrateFromStorage();
-  }, [hydrateFromStorage]);
+    initOnlineService();
+  }, [hydrateFromStorage, initOnlineService]);
 
   useEffect(() => {
     if (biteFeedback.seq <= 0) return;
@@ -123,6 +129,9 @@ export function App() {
               </button>
             </div>
           </div>
+        ) : visitState ? (
+          /* Visiting Another Player's or Neighbor's Home HUD */
+          <VisitModeHud />
         ) : (
           /* Clean Meowchi Gameplay HUD (NO hunger/fullness bars; minimal unobstructed view during interactions!) */
           <div className="ui-layer">
@@ -215,6 +224,7 @@ export function App() {
         <AdoptionFlow />
 
         {/* Modals */}
+        <OnlinePlayersModal />
         <CatProfileModal />
         <EquipmentModal />
         <SettingsModal />
