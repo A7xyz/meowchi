@@ -1,0 +1,1284 @@
+{
+  "version": "2.0",
+  "generatedAt": "2026-11-24T09:35:27.355Z",
+  "portraitResolution": {
+    "width": 720,
+    "height": 1280,
+    "aspect": "9:16"
+  },
+  "room": {
+    "livingRoom": {
+      "image": "sprites/room/cozy_living_room_bg.png",
+      "status": "final_ai_generated",
+      "width": 720,
+      "height": 1280
+    }
+  },
+  "props": {
+    "care": {
+      "image": "sprites/props/props_care.png",
+      "atlas": "sprites/props/props_care.json",
+      "status": "final_ai_generated",
+      "count": 8,
+      "names": [
+        "bed_plush",
+        "bed_woven",
+        "food_bowl_empty",
+        "food_bowl_full",
+        "water_bowl_ceramic",
+        "litter_box_cozy",
+        "scratching_post_sisal",
+        "cardboard_box"
+      ]
+    },
+    "living": {
+      "image": "sprites/props/props_living.png",
+      "atlas": "sprites/props/props_living.json",
+      "status": "final_ai_generated",
+      "count": 8,
+      "names": [
+        "sofa_linen",
+        "table_oak",
+        "cat_tower_oak",
+        "floor_lamp_warm",
+        "rug_linen",
+        "rug_terracotta",
+        "toy_ball",
+        "toy_mouse"
+      ]
+    },
+    "equipment": {
+      "image": "sprites/props/props_equipment.png",
+      "atlas": "sprites/props/props_equipment.json",
+      "status": "final_ai_generated",
+      "count": 6,
+      "names": [
+        "auto_water_fountain",
+        "auto_food_feeder",
+        "auto_litter_box",
+        "smart_cat_bed",
+        "auto_cat_toy",
+        "toy_feather_wand"
+      ]
+    }
+  },
+  "cat": {
+    "masterPortrait": "sprites/cat/master_portrait.png",
+    "actions": {
+      "walk": {
+        "image": "sprites/cat/walk.png",
+        "atlas": "sprites/cat/walk.json",
+        "frameCount": 8,
+        "fps": 10,
+        "loop": true,
+        "status": "final_ai_generated",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0439,
+          "avgInterFrameDiff": 0.0608
+        }
+      },
+      "run": {
+        "image": "sprites/cat/run.png",
+        "atlas": "sprites/cat/run.json",
+        "frameCount": 10,
+        "fps": 14,
+        "loop": true,
+        "status": "final_ai_generated",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0361,
+          "avgInterFrameDiff": 0.07
+        }
+      },
+      "jump": {
+        "image": "sprites/cat/jump.png",
+        "atlas": "sprites/cat/jump.json",
+        "frameCount": 10,
+        "fps": 12,
+        "loop": false,
+        "status": "final_ai_generated",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0536,
+          "avgInterFrameDiff": 0.1226
+        }
+      },
+      "zoomies": {
+        "image": "sprites/cat/zoomies.png",
+        "atlas": "sprites/cat/zoomies.json",
+        "frameCount": 12,
+        "fps": 16,
+        "loop": true,
+        "status": "final_ai_generated",
+        "qa": {
+          "frameCount": 12,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0361,
+          "avgInterFrameDiff": 0.0733
+        }
+      },
+      "idle": {
+        "image": "sprites/cat/idle.png",
+        "atlas": "sprites/cat/idle.json",
+        "frameCount": 8,
+        "fps": 7,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0214,
+          "avgInterFrameDiff": 0.0357
+        },
+        "aiPrompt": "4x2 8-frame idle breathing kitten animation on #FF00FF matching cat_master_ref"
+      },
+      "land": {
+        "image": "sprites/cat/land.png",
+        "atlas": "sprites/cat/land.json",
+        "frameCount": 6,
+        "fps": 12,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 6,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0528,
+          "avgInterFrameDiff": 0.119
+        },
+        "aiPrompt": "3x2 6-frame feline landing animation on #FF00FF matching cat_master_ref"
+      },
+      "turn": {
+        "image": "sprites/cat/turn.png",
+        "atlas": "sprites/cat/turn.json",
+        "frameCount": 6,
+        "fps": 12,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 6,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0475,
+          "avgInterFrameDiff": 0.1205
+        },
+        "aiPrompt": "3x2 6-frame 180-degree feline turn-around sheet on #FF00FF matching cat_master_ref"
+      },
+      "sit": {
+        "image": "sprites/cat/sit.png",
+        "atlas": "sprites/cat/sit.json",
+        "frameCount": 6,
+        "fps": 8,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 6,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0102,
+          "avgInterFrameDiff": 0.0506
+        },
+        "aiPrompt": "3x2 6-frame sitting transition on #FF00FF matching cat_master_ref"
+      },
+      "lie_down": {
+        "image": "sprites/cat/lie_down.png",
+        "atlas": "sprites/cat/lie_down.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0128,
+          "avgInterFrameDiff": 0.0471
+        },
+        "aiPrompt": "4x2 8-frame lying-down loaf transition on #FF00FF matching cat_master_ref"
+      },
+      "sleep": {
+        "image": "sprites/cat/sleep.png",
+        "atlas": "sprites/cat/sleep.json",
+        "frameCount": 8,
+        "fps": 5,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0055,
+          "avgInterFrameDiff": 0.0088
+        },
+        "aiPrompt": "4x2 8-frame curled sleeping kitten breathing loop on #FF00FF matching cat_master_ref"
+      },
+      "happy": {
+        "image": "sprites/cat/happy.png",
+        "atlas": "sprites/cat/happy.json",
+        "frameCount": 8,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0301,
+          "avgInterFrameDiff": 0.0597
+        },
+        "aiPrompt": "4x2 8-frame happy kitten emotion loop on #FF00FF matching cat_master_ref"
+      },
+      "affectionate": {
+        "image": "sprites/cat/affectionate.png",
+        "atlas": "sprites/cat/affectionate.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0194,
+          "avgInterFrameDiff": 0.0409
+        },
+        "aiPrompt": "4x2 8-frame affectionate kitten leaning in on #FF00FF matching cat_master_ref"
+      },
+      "curious": {
+        "image": "sprites/cat/curious.png",
+        "atlas": "sprites/cat/curious.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0431,
+          "avgInterFrameDiff": 0.0743
+        },
+        "aiPrompt": "4x2 8-frame curious sniffing & head-tilt animation on #FF00FF matching cat_master_ref"
+      },
+      "fearful": {
+        "image": "sprites/cat/fearful.png",
+        "atlas": "sprites/cat/fearful.json",
+        "frameCount": 8,
+        "fps": 10,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0295,
+          "avgInterFrameDiff": 0.0303
+        },
+        "aiPrompt": "4x2 8-frame fearful low-crouch flattened-ears animation on #FF00FF matching cat_master_ref"
+      },
+      "defensive": {
+        "image": "sprites/cat/defensive.png",
+        "atlas": "sprites/cat/defensive.json",
+        "frameCount": 8,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0143,
+          "avgInterFrameDiff": 0.02
+        },
+        "aiPrompt": "4x2 8-frame defensive arched-back puffed-tail animation on #FF00FF matching cat_master_ref"
+      },
+      "hiss": {
+        "image": "sprites/cat/hiss.png",
+        "atlas": "sprites/cat/hiss.json",
+        "frameCount": 8,
+        "fps": 10,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0331,
+          "avgInterFrameDiff": 0.1029
+        },
+        "aiPrompt": "4x2 8-frame hissing open-mouth flattened-ears sheet on #FF00FF matching cat_master_ref"
+      },
+      "growl": {
+        "image": "sprites/cat/growl.png",
+        "atlas": "sprites/cat/growl.json",
+        "frameCount": 8,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.02,
+          "avgInterFrameDiff": 0.0321
+        },
+        "aiPrompt": "4x2 8-frame low warning growl sheet on #FF00FF matching cat_master_ref"
+      },
+      "bite": {
+        "image": "sprites/cat/bite.png",
+        "atlas": "sprites/cat/bite.json",
+        "frameCount": 8,
+        "fps": 13,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.028,
+          "avgInterFrameDiff": 0.1187
+        },
+        "aiPrompt": "4x2 8-frame defensive bite lunge & recoil sheet on #FF00FF matching cat_master_ref"
+      },
+      "pounce": {
+        "image": "sprites/cat/pounce.png",
+        "atlas": "sprites/cat/pounce.json",
+        "frameCount": 10,
+        "fps": 12,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0322,
+          "avgInterFrameDiff": 0.1055
+        },
+        "aiPrompt": "5x2 10-frame playful pounce crouch-wiggle-leap sheet on #FF00FF matching cat_master_ref"
+      },
+      "eat": {
+        "image": "sprites/cat/eat.png",
+        "atlas": "sprites/cat/eat.json",
+        "frameCount": 10,
+        "fps": 10,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0,
+          "avgInterFrameDiff": 0.0084
+        },
+        "aiPrompt": "5x2 10-frame eating from bowl animation on #FF00FF matching cat_master_ref"
+      },
+      "drink": {
+        "image": "sprites/cat/drink.png",
+        "atlas": "sprites/cat/drink.json",
+        "frameCount": 10,
+        "fps": 11,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0057,
+          "avgInterFrameDiff": 0.0123
+        },
+        "aiPrompt": "5x2 10-frame lapping water drinking animation on #FF00FF matching cat_master_ref"
+      },
+      "groom": {
+        "image": "sprites/cat/groom.png",
+        "atlas": "sprites/cat/groom.json",
+        "frameCount": 10,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0116,
+          "avgInterFrameDiff": 0.0176
+        },
+        "aiPrompt": "5x2 10-frame self-grooming paw-licking animation on #FF00FF matching cat_master_ref"
+      },
+      "pet_accept": {
+        "image": "sprites/cat/pet_accept.png",
+        "atlas": "sprites/cat/pet_accept.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0161,
+          "avgInterFrameDiff": 0.0225
+        },
+        "aiPrompt": "4x2 8-frame kitten blissfully accepting head petting on #FF00FF matching cat_master_ref"
+      },
+      "brush_react": {
+        "image": "sprites/cat/brush_react.png",
+        "atlas": "sprites/cat/brush_react.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0229,
+          "avgInterFrameDiff": 0.0432
+        },
+        "aiPrompt": "4x2 8-frame kitten reacting to coat brushing on #FF00FF matching cat_master_ref"
+      },
+      "picked_up": {
+        "image": "sprites/cat/picked_up.png",
+        "atlas": "sprites/cat/picked_up.json",
+        "frameCount": 10,
+        "fps": 10,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0195,
+          "avgInterFrameDiff": 0.0557
+        },
+        "aiPrompt": "5x2 10-frame kitten being lifted up on #FF00FF matching cat_master_ref"
+      },
+      "carried": {
+        "image": "sprites/cat/carried.png",
+        "atlas": "sprites/cat/carried.json",
+        "frameCount": 8,
+        "fps": 7,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0095,
+          "avgInterFrameDiff": 0.0162
+        },
+        "aiPrompt": "4x2 8-frame kitten comfortably carried in arms on #FF00FF matching cat_master_ref"
+      },
+      "litter": {
+        "image": "sprites/cat/litter.png",
+        "atlas": "sprites/cat/litter.json",
+        "frameCount": 8,
+        "fps": 8,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0,
+          "avgInterFrameDiff": 0.048
+        },
+        "aiPrompt": "4x2 8-frame using litter box digging & squatting on #FF00FF matching cat_master_ref"
+      },
+      "chase_toy": {
+        "image": "sprites/cat/chase_toy.png",
+        "atlas": "sprites/cat/chase_toy.json",
+        "frameCount": 10,
+        "fps": 13,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0766,
+          "avgInterFrameDiff": 0.16
+        },
+        "aiPrompt": "5x2 10-frame chasing & batting feather toy on #FF00FF matching cat_master_ref"
+      },
+      "knead": {
+        "image": "sprites/cat/knead.png",
+        "atlas": "sprites/cat/knead.json",
+        "frameCount": 10,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 10,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.021,
+          "avgInterFrameDiff": 0.0331
+        },
+        "aiPrompt": "5x2 10-frame alternating-paw blanket kneading on #FF00FF matching cat_master_ref"
+      },
+      "stretch": {
+        "image": "sprites/cat/stretch.png",
+        "atlas": "sprites/cat/stretch.json",
+        "frameCount": 8,
+        "fps": 7,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0125,
+          "avgInterFrameDiff": 0.0765
+        },
+        "aiPrompt": "4x2 8-frame full feline front-paw bow stretch on #FF00FF matching cat_master_ref"
+      },
+      "yawn": {
+        "image": "sprites/cat/yawn.png",
+        "atlas": "sprites/cat/yawn.json",
+        "frameCount": 8,
+        "fps": 7,
+        "loop": false,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0028,
+          "avgInterFrameDiff": 0.0067
+        },
+        "aiPrompt": "4x2 8-frame wide feline yawn animation on #FF00FF matching cat_master_ref"
+      },
+      "head_rub": {
+        "image": "sprites/cat/head_rub.png",
+        "atlas": "sprites/cat/head_rub.json",
+        "frameCount": 8,
+        "fps": 9,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0129,
+          "avgInterFrameDiff": 0.0174
+        },
+        "aiPrompt": "4x2 8-frame affectionate head-bunting rub on #FF00FF matching cat_master_ref"
+      },
+      "tail_swish": {
+        "image": "sprites/cat/tail_swish.png",
+        "atlas": "sprites/cat/tail_swish.json",
+        "frameCount": 8,
+        "fps": 10,
+        "loop": true,
+        "status": "interim_articulated_from_ai_master",
+        "qa": {
+          "frameCount": 8,
+          "frameSize": 256,
+          "transparentCorners": true,
+          "emptyFrames": 0,
+          "clippedFrames": 0,
+          "minInterFrameDiff": 0.0205,
+          "avgInterFrameDiff": 0.0488
+        },
+        "aiPrompt": "4x2 8-frame expressive tail wagging/swishing on #FF00FF matching cat_master_ref"
+      }
+    }
+  },
+  "human": {
+    "female": {
+      "masterPortrait": "sprites/human/female/master_portrait.png",
+      "actions": {
+        "idle": {
+          "image": "sprites/human/female/idle.png",
+          "atlas": "sprites/human/female/idle.json",
+          "frameCount": 8,
+          "fps": 7,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0047,
+            "avgInterFrameDiff": 0.0101
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female idle sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "walk": {
+          "image": "sprites/human/female/walk.png",
+          "atlas": "sprites/human/female/walk.json",
+          "frameCount": 8,
+          "fps": 11,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0155,
+            "avgInterFrameDiff": 0.0219
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female walk sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "run": {
+          "image": "sprites/human/female/run.png",
+          "atlas": "sprites/human/female/run.json",
+          "frameCount": 8,
+          "fps": 14,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0243,
+            "avgInterFrameDiff": 0.0334
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female run sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "turn": {
+          "image": "sprites/human/female/turn.png",
+          "atlas": "sprites/human/female/turn.json",
+          "frameCount": 6,
+          "fps": 12,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 6,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0091,
+            "avgInterFrameDiff": 0.0459
+          },
+          "aiPrompt": "4x2 6-frame 2D Chibi female turn sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "sit": {
+          "image": "sprites/human/female/sit.png",
+          "atlas": "sprites/human/female/sit.json",
+          "frameCount": 6,
+          "fps": 8,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 6,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0226,
+            "avgInterFrameDiff": 0.0243
+          },
+          "aiPrompt": "4x2 6-frame 2D Chibi female sit sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "kneel": {
+          "image": "sprites/human/female/kneel.png",
+          "atlas": "sprites/human/female/kneel.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0255,
+            "avgInterFrameDiff": 0.0268
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female kneel sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "bend": {
+          "image": "sprites/human/female/bend.png",
+          "atlas": "sprites/human/female/bend.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0258,
+            "avgInterFrameDiff": 0.0261
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female bend sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "pet_cat": {
+          "image": "sprites/human/female/pet_cat.png",
+          "atlas": "sprites/human/female/pet_cat.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0093,
+            "avgInterFrameDiff": 0.013
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female pet_cat sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "brush_cat": {
+          "image": "sprites/human/female/brush_cat.png",
+          "atlas": "sprites/human/female/brush_cat.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0091,
+            "avgInterFrameDiff": 0.0133
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female brush_cat sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "pour_food": {
+          "image": "sprites/human/female/pour_food.png",
+          "atlas": "sprites/human/female/pour_food.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0085,
+            "avgInterFrameDiff": 0.0115
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female pour_food sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "refill_water": {
+          "image": "sprites/human/female/refill_water.png",
+          "atlas": "sprites/human/female/refill_water.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0065,
+            "avgInterFrameDiff": 0.0094
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female refill_water sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "hold_cat": {
+          "image": "sprites/human/female/hold_cat.png",
+          "atlas": "sprites/human/female/hold_cat.json",
+          "frameCount": 8,
+          "fps": 8,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0112,
+            "avgInterFrameDiff": 0.0158
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female hold_cat sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "put_cat_down": {
+          "image": "sprites/human/female/put_cat_down.png",
+          "atlas": "sprites/human/female/put_cat_down.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0009,
+            "avgInterFrameDiff": 0.0447
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female put_cat_down sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "play_toy": {
+          "image": "sprites/human/female/play_toy.png",
+          "atlas": "sprites/human/female/play_toy.json",
+          "frameCount": 8,
+          "fps": 11,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0214,
+            "avgInterFrameDiff": 0.0288
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female play_toy sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "clean_litter": {
+          "image": "sprites/human/female/clean_litter.png",
+          "atlas": "sprites/human/female/clean_litter.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0103,
+            "avgInterFrameDiff": 0.0144
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female clean_litter sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "use_equipment": {
+          "image": "sprites/human/female/use_equipment.png",
+          "atlas": "sprites/human/female/use_equipment.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0028,
+            "avgInterFrameDiff": 0.0028
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female use_equipment sprite sheet on #FF00FF matching human_female_ref"
+        },
+        "react_bite": {
+          "image": "sprites/human/female/react_bite.png",
+          "atlas": "sprites/human/female/react_bite.json",
+          "frameCount": 8,
+          "fps": 12,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0,
+            "avgInterFrameDiff": 0.0496
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi female react_bite sprite sheet on #FF00FF matching human_female_ref"
+        }
+      }
+    },
+    "male": {
+      "masterPortrait": "sprites/human/male/master_portrait.png",
+      "actions": {
+        "idle": {
+          "image": "sprites/human/male/idle.png",
+          "atlas": "sprites/human/male/idle.json",
+          "frameCount": 8,
+          "fps": 7,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0051,
+            "avgInterFrameDiff": 0.0113
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male idle sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "walk": {
+          "image": "sprites/human/male/walk.png",
+          "atlas": "sprites/human/male/walk.json",
+          "frameCount": 8,
+          "fps": 11,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0172,
+            "avgInterFrameDiff": 0.0237
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male walk sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "run": {
+          "image": "sprites/human/male/run.png",
+          "atlas": "sprites/human/male/run.json",
+          "frameCount": 8,
+          "fps": 14,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0258,
+            "avgInterFrameDiff": 0.0354
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male run sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "turn": {
+          "image": "sprites/human/male/turn.png",
+          "atlas": "sprites/human/male/turn.json",
+          "frameCount": 6,
+          "fps": 12,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 6,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0096,
+            "avgInterFrameDiff": 0.0435
+          },
+          "aiPrompt": "4x2 6-frame 2D Chibi male turn sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "sit": {
+          "image": "sprites/human/male/sit.png",
+          "atlas": "sprites/human/male/sit.json",
+          "frameCount": 6,
+          "fps": 8,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 6,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0231,
+            "avgInterFrameDiff": 0.0254
+          },
+          "aiPrompt": "4x2 6-frame 2D Chibi male sit sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "kneel": {
+          "image": "sprites/human/male/kneel.png",
+          "atlas": "sprites/human/male/kneel.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0248,
+            "avgInterFrameDiff": 0.0265
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male kneel sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "bend": {
+          "image": "sprites/human/male/bend.png",
+          "atlas": "sprites/human/male/bend.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0256,
+            "avgInterFrameDiff": 0.0263
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male bend sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "pet_cat": {
+          "image": "sprites/human/male/pet_cat.png",
+          "atlas": "sprites/human/male/pet_cat.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0089,
+            "avgInterFrameDiff": 0.0131
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male pet_cat sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "brush_cat": {
+          "image": "sprites/human/male/brush_cat.png",
+          "atlas": "sprites/human/male/brush_cat.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0091,
+            "avgInterFrameDiff": 0.0133
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male brush_cat sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "pour_food": {
+          "image": "sprites/human/male/pour_food.png",
+          "atlas": "sprites/human/male/pour_food.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0086,
+            "avgInterFrameDiff": 0.0116
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male pour_food sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "refill_water": {
+          "image": "sprites/human/male/refill_water.png",
+          "atlas": "sprites/human/male/refill_water.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0061,
+            "avgInterFrameDiff": 0.0091
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male refill_water sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "hold_cat": {
+          "image": "sprites/human/male/hold_cat.png",
+          "atlas": "sprites/human/male/hold_cat.json",
+          "frameCount": 8,
+          "fps": 8,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0105,
+            "avgInterFrameDiff": 0.0155
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male hold_cat sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "put_cat_down": {
+          "image": "sprites/human/male/put_cat_down.png",
+          "atlas": "sprites/human/male/put_cat_down.json",
+          "frameCount": 8,
+          "fps": 10,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0009,
+            "avgInterFrameDiff": 0.0439
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male put_cat_down sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "play_toy": {
+          "image": "sprites/human/male/play_toy.png",
+          "atlas": "sprites/human/male/play_toy.json",
+          "frameCount": 8,
+          "fps": 11,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0215,
+            "avgInterFrameDiff": 0.0297
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male play_toy sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "clean_litter": {
+          "image": "sprites/human/male/clean_litter.png",
+          "atlas": "sprites/human/male/clean_litter.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0102,
+            "avgInterFrameDiff": 0.0146
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male clean_litter sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "use_equipment": {
+          "image": "sprites/human/male/use_equipment.png",
+          "atlas": "sprites/human/male/use_equipment.json",
+          "frameCount": 8,
+          "fps": 9,
+          "loop": true,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0.0026,
+            "avgInterFrameDiff": 0.003
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male use_equipment sprite sheet on #FF00FF matching human_male_ref"
+        },
+        "react_bite": {
+          "image": "sprites/human/male/react_bite.png",
+          "atlas": "sprites/human/male/react_bite.json",
+          "frameCount": 8,
+          "fps": 12,
+          "loop": false,
+          "status": "interim_articulated_from_ai_master",
+          "qa": {
+            "frameCount": 8,
+            "frameSize": 256,
+            "transparentCorners": true,
+            "emptyFrames": 0,
+            "clippedFrames": 0,
+            "minInterFrameDiff": 0,
+            "avgInterFrameDiff": 0.0503
+          },
+          "aiPrompt": "4x2 8-frame 2D Chibi male react_bite sprite sheet on #FF00FF matching human_male_ref"
+        }
+      }
+    }
+  }
+}

@@ -83,7 +83,7 @@ export function App() {
   return (
     <div className="app-shell">
       <main className="phone-frame">
-        {/* Live 3D Three.js Canvas */}
+        {/* Live 2D Phaser 3 Sprite Canvas */}
         <div ref={mountRef} className="canvas-viewport" />
 
         {/* Subtle 0.5s Non-Obstructive Defensive Bite Screen-Edge Feedback */}
@@ -208,10 +208,10 @@ export function App() {
         {activeGameId === 'delivery' && <DeliveryGame />}
         {activeGameId === 'clean_room' && <CleanRoomGame />}
 
-        {/* 3D Human Character Creator & Wardrobe */}
+        {/* 2D Chibi Human Character Creator & Wardrobe */}
         <HumanCreator />
 
-        {/* First-Run Breed Selection & 3D Kitten Customization */}
+        {/* First-Run Breed Selection & 2D Kitten Customization */}
         <AdoptionFlow />
 
         {/* Modals */}

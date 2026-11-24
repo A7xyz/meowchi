@@ -16,7 +16,7 @@ import {
 } from '../config/human';
 import { useGameStore } from '../store/useGameStore';
 import { HumanAppearance } from '../types/game';
-import { HumanPreview3D } from './HumanPreview3D';
+import { HumanPreview2D } from './HumanPreview2D';
 
 type CreatorTab = 'body' | 'hair' | 'face' | 'outfit';
 
@@ -98,7 +98,7 @@ export function HumanCreator() {
       </div>
 
       {/* Live Full-Body 3D Character Preview (Rotate & Zoom) */}
-      <HumanPreview3D appearance={draft} focusFace={tab === 'hair' || tab === 'face'} />
+      <HumanPreview2D appearance={draft} focusFace={tab === 'hair' || tab === 'face'} />
       <div style={{ textAlign: 'center', fontSize: 10, color: '#756355', marginTop: -4 }}>
         {lang === 'th'
           ? 'ลากเพื่อหมุนดู 360° • กดปุ่มแว่นขยายเพื่อซูมใบหน้า/เต็มตัว'

@@ -12,7 +12,7 @@ import {
 import { PATTERN_LABELS, UI_TEXT } from '../i18n/translations';
 import { useGameStore } from '../store/useGameStore';
 import { CatBreed, CatIdentity, CatSex, EyeColorId, FurColorId, FurPattern } from '../types/game';
-import { CatPreview3D } from './CatPreview3D';
+import { CatPreview2D } from './CatPreview2D';
 
 export function AdoptionFlow() {
   const showAdoptFlow = useGameStore((s) => s.showAdoptFlow);
@@ -183,7 +183,7 @@ export function AdoptionFlow() {
       ) : (
         /* STEP 2: REAL-TIME 3D CUSTOMIZATION */
         <div className="adopt-scroll">
-          <CatPreview3D identity={previewIdentity} />
+          <CatPreview2D identity={previewIdentity} />
           <div style={{ textAlign: 'center', fontSize: 10.5, color: '#756355', marginTop: 4 }}>
             {t.rotateHint}
           </div>
