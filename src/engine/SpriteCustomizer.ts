@@ -230,6 +230,10 @@ export function createCustomizedHumanCanvas(
   const shoeTarget = hexToRgb(appearance.footwearColor);
 
   const isMale = appearance.gender === 'male';
+  const skipHair = appearance.hairColor === 'dark_brown';
+  const skipSkin =
+    (!isMale && appearance.skinTone === 'fair') ||
+    (isMale && appearance.skinTone === 'warm_beige');
 
   for (let y = 0; y < h; y++) {
     const fy = (y % frameSize) / frameSize;
@@ -283,16 +287,18 @@ export function createCustomizedHumanCanvas(
         continue;
       }
 
-      // 4. Hair zone (upper head dark warm brown locks, excluding glossy eye centers)
+      // 4. Hair zone (upper head dark warm brown locks, excluding glossy amber iris pixels)
       const fx = (x % frameSize) / frameSize;
-      const inEyeBox = fx > 0.42 && fx < 0.68 && fy > 0.26 && fy < 0.41;
+      const isGlossyIris =
+        fx > 0.44 && fx < 0.68 && fy > 0.3 && fy < 0.4 && r > g * 1.32 && b < g * 0.62;
       const isHair =
-        !inEyeBox &&
+        !skipHair &&
+        !isGlossyIris &&
         fy < 0.56 &&
         r >= g &&
         g >= b - 6 &&
         lum >= 0.16 &&
-        lum < 0.48 &&
+        lum < 0.46 &&
         sat > 0.18;
       if (isHair) {
         const shade = Math.max(0.36, Math.min(1.45, lum / 0.29));
@@ -304,6 +310,7 @@ export function createCustomizedHumanCanvas(
 
       // 5. Skin tone zone (warm peach face, ears, neck, hands)
       const isSkin =
+        !skipSkin &&
         r > 185 &&
         g > 125 &&
         b > 95 &&

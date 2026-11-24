@@ -1122,7 +1122,7 @@ export class MeowchiPhaserScene extends Phaser.Scene {
     const growth = computeGrowthMetrics(latest.cat.identity.breed, latest.cat.ageDays);
     const breedMorph = getBreedDefinition(latest.cat.identity.breed).morphology;
     const weightWidthFactor = 1 + clamp(latest.cat.weight.bodyFatIndex * 0.14, -0.1, 0.16);
-    const baseCatScale = clamp(growth.bodyScale * breedMorph.adultScale, 0.48, 1.15) * 0.68;
+    const baseCatScale = clamp(growth.bodyScale * breedMorph.adultScale, 0.54, 1.18) * 0.82;
 
     let catScreenX = 0;
     let catScreenY = 0;
