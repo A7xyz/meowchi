@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { ROOM_HALF_DEPTH, ROOM_HALF_WIDTH } from '../config/catalog';
-import { getCommunityNeighborHomes } from '../online/communityHomes';
 import {
   decodeHomeInviteParam,
   deriveHomeCode,
@@ -9,6 +8,8 @@ import {
   OnlinePresenceService
 } from '../online/onlineService';
 import {
+  LiveGuestPresence,
+  LiveHostSyncPacket,
   OnlineConnectionStatus,
   OnlinePlayerHome,
   OnlineVisitEvent,
@@ -43,13 +44,15 @@ function saveStoredLikes(val: number): void {
 }
 
 let serviceInstance: OnlinePresenceService | null = null;
+let lastHostBroadcastMs = 0;
+let lastGuestBroadcastMs = 0;
 
 export interface OnlineStoreState {
   myPlayerId: string;
   myHomeCode: string;
   connectionStatus: OnlineConnectionStatus;
   livePlayers: OnlinePlayerHome[];
-  communityHomes: OnlinePlayerHome[];
+  homeGuests: LiveGuestPresence[];
   showOnlineModal: boolean;
   homeLikesReceived: number;
   visitParticleSeq: number;
@@ -58,8 +61,11 @@ export interface OnlineStoreState {
   visitState: VisitRuntimeState | null;
 
   initOnlineService: () => void;
+  refreshOnlinePlayers: () => void;
   publishHomeUpdate: () => void;
+  publishHostLiveSyncIfNeeded: () => void;
   setShowOnlineModal: (open: boolean) => void;
+  ingestLivePlayerForTest: (home: OnlinePlayerHome) => void;
   visitHome: (home: OnlinePlayerHome) => void;
   visitByHomeCode: (codeInput: string) => boolean;
   leaveVisitedHome: () => void;
@@ -68,7 +74,7 @@ export interface OnlineStoreState {
   petVisitedCat: () => void;
   giveVisitedCatTreat: () => void;
   likeVisitedHome: () => void;
-  waveAtVisitedHome: () => void;
+  waveAtVisitedHome: (customText?: string) => void;
   getShareableInviteUrl: () => string;
 }
 
@@ -77,7 +83,6 @@ function buildOwnHomeSnapshot(playerId: string, homeCode: string, likesCount: nu
   return {
     playerId,
     homeCode,
-    isLive: true,
     ownerName: gs.humanAppearance.name || 'Meowchi',
     humanAppearance: gs.humanAppearance,
     catIdentity: gs.cat.identity,
@@ -95,16 +100,49 @@ function buildOwnHomeSnapshot(playerId: string, homeCode: string, likesCount: nu
   };
 }
 
+function mapHostCatBehaviorToVisit(
+  behavior: LiveHostSyncPacket['catBehavior']
+): VisitRuntimeState['hostCatBehavior'] {
+  if (behavior === 'walk' || behavior === 'run' || behavior === 'explore' || behavior === 'approach_player') {
+    return 'walk';
+  }
+  if (behavior === 'eat' || behavior === 'drink') return 'eat';
+  if (behavior === 'sit' || behavior === 'sleep') return 'sit';
+  if (behavior === 'play' || behavior === 'head_bunt' || behavior === 'knead') return 'happy';
+  return 'idle';
+}
+
 export const useOnlineStore = create<OnlineStoreState>((set, get) => {
   const initialId = getOrCreateLocalPlayerId();
   const initialCode = deriveHomeCode(initialId);
+
+  const pushGuestSnapshot = (force = false) => {
+    const vs = get().visitState;
+    if (!vs || !serviceInstance) return;
+    const now = Date.now();
+    if (!force && now - lastGuestBroadcastMs < 220) return;
+    lastGuestBroadcastMs = now;
+    const gs = useGameStore.getState();
+    serviceInstance.publishGuestState(vs.home.playerId, {
+      playerId: get().myPlayerId,
+      ownerName: gs.humanAppearance.name || 'Guest',
+      humanAppearance: gs.humanAppearance,
+      x: vs.visitorPosition.x,
+      z: vs.visitorPosition.z,
+      rotationY: vs.visitorRotationY,
+      anim: vs.visitorTarget ? 'walk' : vs.visitorAnim,
+      bubbleText: now < vs.waveBubbleUntilMs ? vs.waveBubbleText : null,
+      bubbleUntilMs: vs.waveBubbleUntilMs,
+      lastSeenUtc: now
+    });
+  };
 
   return {
     myPlayerId: initialId,
     myHomeCode: initialCode,
     connectionStatus: 'connecting',
     livePlayers: [],
-    communityHomes: getCommunityNeighborHomes(),
+    homeGuests: [],
     showOnlineModal: false,
     homeLikesReceived: loadStoredLikes(),
     visitParticleSeq: 0,
@@ -119,7 +157,48 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         getOwnHomeSnapshot: () =>
           buildOwnHomeSnapshot(get().myPlayerId, get().myHomeCode, get().homeLikesReceived),
         onStatusChange: (status) => set({ connectionStatus: status }),
-        onLivePlayersChange: (players) => set({ livePlayers: players }),
+        onLivePlayersChange: (players) => {
+          set((state) => {
+            // Keep currently visited host home metadata fresh if they redecorate live!
+            const vs = state.visitState;
+            if (vs) {
+              const updatedHost = players.find((p) => p.playerId === vs.home.playerId);
+              if (updatedHost) {
+                return {
+                  livePlayers: players,
+                  visitState: {
+                    ...vs,
+                    home: {
+                      ...updatedHost,
+                      likesCount: Math.max(updatedHost.likesCount, vs.home.likesCount)
+                    }
+                  }
+                };
+              }
+            }
+            return { livePlayers: players };
+          });
+        },
+        onHomeGuestsChange: (guests) => set({ homeGuests: guests }),
+        onHostLiveSync: (sync) => {
+          const vs = get().visitState;
+          if (!vs || vs.home.playerId !== sync.hostPlayerId) return;
+          set({
+            visitState: {
+              ...vs,
+              hostPosition: sync.humanPos,
+              hostRotationY: sync.humanRotY,
+              hostAnim: sync.humanAnim,
+              hostCatPosition: sync.catPos,
+              hostCatRotationY: sync.catRotY,
+              hostCatBehavior:
+                vs.hostCatBehavior === 'pet_accept' && vs.hostCatTimer > 0
+                  ? 'pet_accept'
+                  : mapHostCatBehaviorToVisit(sync.catBehavior),
+              lastLiveHostSyncMs: Date.now()
+            }
+          });
+        },
         onVisitEventReceived: (ev: OnlineVisitEvent) => {
           const gs = useGameStore.getState();
           const lang = gs.settings.language;
@@ -147,20 +226,23 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
                 : `🐟 ${ev.fromName} gave ${gs.cat.identity.name} a welcome treat!`,
               'celebrate'
             );
-          } else if (ev.type === 'wave') {
+          } else if (ev.type === 'wave' || ev.type === 'chat') {
+            const msg = ev.message ? `: "${ev.message}"` : '';
             gs.showToast(
               lang === 'th'
-                ? `👋 ${ev.fromName} โบกมือทักทายคุณ!`
-                : `👋 ${ev.fromName} waved hello!`,
+                ? `👋 ${ev.fromName} ทักทายคุณ${msg}`
+                : `👋 ${ev.fromName} says${msg || ' hello!'}`,
               'info'
             );
           } else if (ev.type === 'visit') {
             gs.showToast(
               lang === 'th'
-                ? `🏡 ${ev.fromName} กำลังเข้ามาเยี่ยมบ้านของคุณ!`
-                : `🏡 ${ev.fromName} is visiting your home!`,
+                ? `🏡 ${ev.fromName} เข้ามาเยี่ยมบ้านของคุณแล้ว!`
+                : `🏡 ${ev.fromName} just entered your home!`,
               'info'
             );
+            // Immediately broadcast our live host state so the visitor sees us right away
+            get().publishHostLiveSyncIfNeeded();
           }
         }
       });
@@ -186,19 +268,53 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
       }
     },
 
+    refreshOnlinePlayers: () => {
+      serviceInstance?.requestRefresh();
+    },
+
     publishHomeUpdate: () => {
       serviceInstance?.publishOwnPresence();
+    },
+
+    publishHostLiveSyncIfNeeded: () => {
+      if (!serviceInstance || get().homeGuests.length === 0) return;
+      const now = Date.now();
+      if (now - lastHostBroadcastMs < 260) return;
+      lastHostBroadcastMs = now;
+      const gs = useGameStore.getState();
+      serviceInstance.publishHostLiveSync({
+        hostPlayerId: get().myPlayerId,
+        humanPos: { x: gs.human.position.x, z: gs.human.position.z },
+        humanRotY: gs.human.rotationY,
+        humanAnim: gs.human.animState,
+        catPos: { x: gs.cat.position.x, z: gs.cat.position.z },
+        catRotY: gs.cat.rotationY,
+        catBehavior: gs.cat.behavior,
+        catEmotion: gs.cat.emotion,
+        sentAtUtc: now
+      });
     },
 
     setShowOnlineModal: (open) => {
       if (open) {
         useGameStore.getState().setDrawerOpen(false);
-        serviceInstance?.publishOwnPresence();
+        serviceInstance?.requestRefresh();
       }
       set({ showOnlineModal: open });
     },
 
+    ingestLivePlayerForTest: (home) => {
+      set((s) => ({
+        livePlayers: [home, ...s.livePlayers.filter((p) => p.playerId !== home.playerId)]
+      }));
+    },
+
     visitHome: (home) => {
+      const prevVisit = get().visitState;
+      if (prevVisit && prevVisit.home.playerId !== home.playerId) {
+        serviceInstance?.publishGuestLeft(prevVisit.home.playerId);
+      }
+
       const gs = useGameStore.getState();
       gs.setDrawerOpen(false);
       gs.activateToy(null);
@@ -219,11 +335,13 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
           visitorActionTimer: 0,
           hostPosition: startHost,
           hostRotationY: 0.65,
+          hostAnim: 'idle',
           hostCatPosition: startHostCat,
           hostCatRotationY: 0.4,
           hostCatTarget: null,
           hostCatBehavior: 'idle',
           hostCatTimer: 2.2,
+          lastLiveHostSyncMs: 0,
           likedThisVisit: false,
           treatedThisVisit: false,
           waveBubbleText: null,
@@ -231,13 +349,15 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         }
       });
 
-      if (home.isLive && serviceInstance) {
+      if (serviceInstance) {
+        serviceInstance.subscribeToHostRoom(home.playerId);
         serviceInstance.sendVisitEvent(
           home.playerId,
           'visit',
           gs.humanAppearance.name,
           gs.cat.identity.name
         );
+        pushGuestSnapshot(true);
       }
 
       const lang = gs.settings.language;
@@ -253,8 +373,7 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
       const normalized = codeInput.trim().toUpperCase();
       if (!normalized) return false;
       const withPrefix = normalized.startsWith('MC-') ? normalized : `MC-${normalized}`;
-      const all = [...get().livePlayers, ...get().communityHomes];
-      const match = all.find(
+      const match = get().livePlayers.find(
         (h) => h.homeCode.toUpperCase() === withPrefix || h.homeCode.toUpperCase() === normalized
       );
       if (match) {
@@ -265,6 +384,11 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
     },
 
     leaveVisitedHome: () => {
+      const vs = get().visitState;
+      if (vs && serviceInstance) {
+        serviceInstance.publishGuestLeft(vs.home.playerId);
+        serviceInstance.subscribeToHostRoom(null);
+      }
       const gs = useGameStore.getState();
       set({ visitState: null });
       const lang = gs.settings.language;
@@ -293,6 +417,7 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
           visitorActionTimer: 0
         }
       });
+      pushGuestSnapshot(true);
     },
 
     petVisitedCat: () => {
@@ -321,14 +446,13 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         }
       });
 
-      if (vs.home.isLive && serviceInstance) {
-        serviceInstance.sendVisitEvent(
-          vs.home.playerId,
-          'pet',
-          gs.humanAppearance.name,
-          gs.cat.identity.name
-        );
-      }
+      serviceInstance?.sendVisitEvent(
+        vs.home.playerId,
+        'pet',
+        gs.humanAppearance.name,
+        gs.cat.identity.name
+      );
+      pushGuestSnapshot(true);
 
       gs.showToast(
         lang === 'th'
@@ -375,14 +499,13 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         }
       });
 
-      if (vs.home.isLive && serviceInstance) {
-        serviceInstance.sendVisitEvent(
-          vs.home.playerId,
-          'treat',
-          gs.humanAppearance.name,
-          gs.cat.identity.name
-        );
-      }
+      serviceInstance?.sendVisitEvent(
+        vs.home.playerId,
+        'treat',
+        gs.humanAppearance.name,
+        gs.cat.identity.name
+      );
+      pushGuestSnapshot(true);
 
       gs.showToast(
         lang === 'th'
@@ -418,9 +541,6 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
       set((state) => ({
         visitParticleSeq: state.visitParticleSeq + 1,
         visitParticleType: 'hearts',
-        communityHomes: state.communityHomes.map((h) =>
-          h.playerId === updatedHome.playerId ? updatedHome : h
-        ),
         livePlayers: state.livePlayers.map((h) =>
           h.playerId === updatedHome.playerId ? updatedHome : h
         ),
@@ -431,14 +551,12 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         }
       }));
 
-      if (vs.home.isLive && serviceInstance) {
-        serviceInstance.sendVisitEvent(
-          vs.home.playerId,
-          'like',
-          gs.humanAppearance.name,
-          gs.cat.identity.name
-        );
-      }
+      serviceInstance?.sendVisitEvent(
+        vs.home.playerId,
+        'like',
+        gs.humanAppearance.name,
+        gs.cat.identity.name
+      );
 
       gs.showToast(
         lang === 'th'
@@ -448,28 +566,29 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
       );
     },
 
-    waveAtVisitedHome: () => {
+    waveAtVisitedHome: (customText?: string) => {
       const vs = get().visitState;
       if (!vs) return;
       const gs = useGameStore.getState();
       const lang = gs.settings.language;
+      const text = customText ?? (lang === 'th' ? 'สวัสดีจ้า! 👋' : 'Hello! 👋');
 
       set({
         visitState: {
           ...vs,
-          waveBubbleText: lang === 'th' ? 'สวัสดีจ้า! 👋' : 'Hello! 👋',
-          waveBubbleUntilMs: Date.now() + 3000
+          waveBubbleText: text,
+          waveBubbleUntilMs: Date.now() + 3500
         }
       });
 
-      if (vs.home.isLive && serviceInstance) {
-        serviceInstance.sendVisitEvent(
-          vs.home.playerId,
-          'wave',
-          gs.humanAppearance.name,
-          gs.cat.identity.name
-        );
-      }
+      serviceInstance?.sendVisitEvent(
+        vs.home.playerId,
+        customText ? 'chat' : 'wave',
+        gs.humanAppearance.name,
+        gs.cat.identity.name,
+        text
+      );
+      pushGuestSnapshot(true);
     },
 
     stepVisitSimulation: (dtSeconds) => {
@@ -502,7 +621,6 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
           if (vAnim === 'idle') vAnim = 'walk';
         } else {
           vTarget = null;
-          // Face host's cat upon arrival for pet/treat
           vRot = Math.atan2(vs.hostCatPosition.x - vPos.x, vs.hostCatPosition.z - vPos.z);
           if (vAnim === 'walk') vAnim = 'idle';
         }
@@ -513,61 +631,67 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
         }
       }
 
-      // 2. Host's cat cozy autonomous roaming inside the host's house
+      // 2. Host cat: use live sync from host device if received recently; otherwise gentle idle/roam
+      const hasFreshHostSync = Date.now() - vs.lastLiveHostSyncMs < 4000;
       let cPos = { ...vs.hostCatPosition };
       let cRot = vs.hostCatRotationY;
       let cTarget = vs.hostCatTarget;
       let cBeh = vs.hostCatBehavior;
       let cTimer = vs.hostCatTimer - dt;
 
-      if (cBeh === 'walk' && cTarget) {
-        const dx = cTarget.x - cPos.x;
-        const dz = cTarget.z - cPos.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist > 0.14) {
-          const step = Math.min(dist, 0.72 * dt);
-          cPos = resolveCatCollision(
-            { x: cPos.x + (dx / dist) * step, z: cPos.z + (dz / dist) * step },
-            0.2,
-            furn
-          );
-          cRot = Math.atan2(dx, dz);
-        } else {
-          cTarget = null;
-          cBeh = 'sit';
-          cTimer = 2.6 + Math.random() * 2.5;
+      if (!hasFreshHostSync) {
+        if (cBeh === 'walk' && cTarget) {
+          const dx = cTarget.x - cPos.x;
+          const dz = cTarget.z - cPos.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > 0.14) {
+            const step = Math.min(dist, 0.72 * dt);
+            cPos = resolveCatCollision(
+              { x: cPos.x + (dx / dist) * step, z: cPos.z + (dz / dist) * step },
+              0.2,
+              furn
+            );
+            cRot = Math.atan2(dx, dz);
+          } else {
+            cTarget = null;
+            cBeh = 'sit';
+            cTimer = 2.6 + Math.random() * 2.5;
+          }
         }
-      }
 
-      if (cTimer <= 0 && cBeh !== 'pet_accept') {
-        const roll = Math.random();
-        if (roll < 0.48) {
-          cTarget = resolveCatCollision(
-            {
-              x: (Math.random() - 0.5) * 3.4,
-              z: (Math.random() - 0.5) * 2.6
-            },
-            0.22,
-            furn
-          );
-          cBeh = 'walk';
-          cTimer = 5.0;
-        } else if (roll < 0.78) {
-          cTarget = null;
-          cBeh = 'sit';
-          cTimer = 3.2 + Math.random() * 2.0;
-        } else {
-          cTarget = null;
+        if (cTimer <= 0 && cBeh !== 'pet_accept') {
+          const roll = Math.random();
+          if (roll < 0.48) {
+            cTarget = resolveCatCollision(
+              {
+                x: (Math.random() - 0.5) * 3.4,
+                z: (Math.random() - 0.5) * 2.6
+              },
+              0.22,
+              furn
+            );
+            cBeh = 'walk';
+            cTimer = 5.0;
+          } else if (roll < 0.78) {
+            cTarget = null;
+            cBeh = 'sit';
+            cTimer = 3.2 + Math.random() * 2.0;
+          } else {
+            cTarget = null;
+            cBeh = 'happy';
+            cTimer = 2.6;
+          }
+        } else if (cTimer <= 0 && cBeh === 'pet_accept') {
           cBeh = 'happy';
-          cTimer = 2.6;
+          cTimer = 2.2;
         }
       } else if (cTimer <= 0 && cBeh === 'pet_accept') {
-        cBeh = 'happy';
-        cTimer = 2.2;
+        cBeh = 'idle';
       }
 
-      // Host subtly turns to face visitor
-      const hostRot = Math.atan2(vPos.x - vs.hostPosition.x, vPos.z - vs.hostPosition.z);
+      const hostRot = hasFreshHostSync
+        ? vs.hostRotationY
+        : Math.atan2(vPos.x - vs.hostPosition.x, vPos.z - vs.hostPosition.z);
 
       set({
         visitState: {
@@ -586,6 +710,9 @@ export const useOnlineStore = create<OnlineStoreState>((set, get) => {
           waveBubbleText: Date.now() < vs.waveBubbleUntilMs ? vs.waveBubbleText : null
         }
       });
+
+      // Stream our live position/animation back to the host's screen!
+      pushGuestSnapshot(false);
     },
 
     getShareableInviteUrl: () => {

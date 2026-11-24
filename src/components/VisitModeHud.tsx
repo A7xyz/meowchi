@@ -1,10 +1,25 @@
 import { ArrowLeft, Camera, Fish, HandHeart, Heart, Smile, Users } from 'lucide-react';
+import { useState } from 'react';
 import { getBreedDefinition } from '../config/breeds';
 import { useGameStore } from '../store/useGameStore';
 import { useOnlineStore } from '../store/useOnlineStore';
 
+const QUICK_GREETINGS_TH = [
+  'สวัสดีจ้า! 👋',
+  'น้องแมวน่ารักมาก! 🥰',
+  'บ้านสวยจังเลย! ✨',
+  'มาเล่นด้วยกันนะ! 🐾'
+];
+
+const QUICK_GREETINGS_EN = [
+  'Hello! 👋',
+  'Your cat is so cute! 🥰',
+  'Lovely home! ✨',
+  'Let’s play! 🐾'
+];
+
 /**
- * Clean Mobile Portrait HUD displayed while visiting another player's or neighbor's home.
+ * Clean Mobile Portrait HUD displayed while visiting another real player's home.
  */
 export function VisitModeHud() {
   const visitState = useOnlineStore((s) => s.visitState);
@@ -19,11 +34,20 @@ export function VisitModeHud() {
   const setPhotoMode = useGameStore((s) => s.setPhotoMode);
   const toast = useGameStore((s) => s.toast);
 
+  const [greetingIdx, setGreetingIdx] = useState(0);
+
   if (!visitState) return null;
 
   const { home, likedThisVisit } = visitState;
   const isTh = lang === 'th';
   const breed = getBreedDefinition(home.catIdentity.breed);
+
+  const handleWave = () => {
+    const list = isTh ? QUICK_GREETINGS_TH : QUICK_GREETINGS_EN;
+    const text = list[greetingIdx % list.length];
+    setGreetingIdx((i) => i + 1);
+    waveAtVisitedHome(text);
+  };
 
   return (
     <div className="ui-layer">
@@ -31,8 +55,8 @@ export function VisitModeHud() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div className="top-row">
           <div className="cat-pill ui-interactive" style={{ cursor: 'default' }}>
-            <div className="level-badge" style={{ background: home.isLive ? '#4e9a62' : '#c87a56' }}>
-              {home.isLive ? 'LIVE' : '🏡'}
+            <div className="level-badge" style={{ background: '#4e9a62' }}>
+              LIVE
             </div>
             <div className="cat-meta">
               <span className="cat-name-line">
@@ -67,8 +91,10 @@ export function VisitModeHud() {
         </div>
 
         <div className="behavior-chip" style={{ alignSelf: 'flex-start', maxWidth: '100%' }}>
-          <span>💬</span>
-          <span>{isTh ? home.greetingTh : home.greetingEn}</span>
+          <span>🏡</span>
+          <span>
+            {home.homeCode} • {isTh ? home.greetingTh : home.greetingEn}
+          </span>
         </div>
 
         {toast && (
@@ -109,7 +135,7 @@ export function VisitModeHud() {
             />
             <span>{home.likesCount}</span>
           </button>
-          <button type="button" className="nav-btn" onClick={() => waveAtVisitedHome()}>
+          <button type="button" className="nav-btn" onClick={handleWave}>
             <Smile size={19} />
             <span>{isTh ? 'ทักทาย' : 'Wave'}</span>
           </button>

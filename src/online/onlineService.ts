@@ -1,11 +1,21 @@
 import { MqttWebSocketClient } from './mqttWebSocket';
-import { OnlineConnectionStatus, OnlinePlayerHome, OnlineVisitEvent, VisitInteractionKind } from './types';
+import {
+  LiveGuestPresence,
+  LiveHostSyncPacket,
+  OnlineConnectionStatus,
+  OnlinePlayerHome,
+  OnlineVisitEvent,
+  VisitInteractionKind
+} from './types';
 
 const PLAYER_ID_STORAGE_KEY = 'meowchi_online_player_id_v1';
-const PRESENCE_TOPIC_PREFIX = 'meowchi/v1/presence/';
-const EVENTS_TOPIC_PREFIX = 'meowchi/v1/events/';
-const BROADCAST_CHANNEL_NAME = 'meowchi_online_v1';
-const LIVE_PLAYER_TTL_MS = 48_000;
+const PRESENCE_TOPIC_PREFIX = 'meowchi/v2/presence/';
+const DISCOVERY_TOPIC = 'meowchi/v2/discovery';
+const EVENTS_TOPIC_PREFIX = 'meowchi/v2/events/';
+const GUESTS_TOPIC_PREFIX = 'meowchi/v2/guests/'; // guests inside <hostId>'s home
+const HOST_SYNC_TOPIC_PREFIX = 'meowchi/v2/hostsync/'; // live host movement in <hostId>'s home
+const LIVE_PLAYER_TTL_MS = 38_000;
+const LIVE_GUEST_TTL_MS = 18_000;
 
 const PUBLIC_WSS_BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
@@ -43,10 +53,7 @@ export function deriveHomeCode(playerId: string): string {
 
 export function encodeHomeInviteParam(home: OnlinePlayerHome): string {
   try {
-    const json = JSON.stringify({
-      ...home,
-      isLive: true
-    });
+    const json = JSON.stringify(home);
     const bytes = new TextEncoder().encode(json);
     let bin = '';
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -69,7 +76,6 @@ export function decodeHomeInviteParam(encoded: string): OnlinePlayerHome | null 
     }
     return {
       ...(parsed as OnlinePlayerHome),
-      isLive: true,
       lastSeenUtc: Date.now()
     };
   } catch {
@@ -81,13 +87,19 @@ export interface OnlineServiceCallbacks {
   getOwnHomeSnapshot: () => OnlinePlayerHome;
   onStatusChange: (status: OnlineConnectionStatus) => void;
   onLivePlayersChange: (players: OnlinePlayerHome[]) => void;
+  onHomeGuestsChange: (guests: LiveGuestPresence[]) => void;
+  onHostLiveSync: (sync: LiveHostSyncPacket) => void;
   onVisitEventReceived: (ev: OnlineVisitEvent) => void;
 }
 
 /**
- * Coordinates real-time online player discovery and live home-visit events across:
- * 1) Public WSS MQTT relay (cross-device worldwide presence on static GitHub Pages)
- * 2) Same-browser BroadcastChannel (instant zero-latency local multi-tab sync)
+ * Pure real-player cross-device online multiplayer service over WSS MQTT.
+ * ZERO AI bots or fake NPCs — every player listed is a real connected human client!
+ * Features:
+ * - Instant discovery ping on connect (<200ms player list population)
+ * - MQTT Last Will & Testament (LWT) + pagehide goodbye for instant offline removal
+ * - Real-time guest presence inside your living room when another player visits you
+ * - Real-time host movement sync when you visit another player's living room
  */
 export class OnlinePresenceService {
   public readonly playerId: string;
@@ -95,11 +107,13 @@ export class OnlinePresenceService {
 
   private readonly callbacks: OnlineServiceCallbacks;
   private mqtt: MqttWebSocketClient | null = null;
-  private channel: BroadcastChannel | null = null;
   private livePlayers = new Map<string, OnlinePlayerHome>();
+  private homeGuests = new Map<string, LiveGuestPresence>();
+  private subscribedHostId: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
+  private lastDiscoveryReplyMs = 0;
 
   constructor(callbacks: OnlineServiceCallbacks) {
     this.callbacks = callbacks;
@@ -112,106 +126,172 @@ export class OnlinePresenceService {
     this.started = true;
     this.callbacks.onStatusChange('connecting');
 
-    // 1. Instant cross-tab BroadcastChannel
-    if (typeof BroadcastChannel !== 'undefined') {
-      try {
-        this.channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-        this.channel.onmessage = (e) => {
-          const data = e.data as { kind: 'presence'; home: OnlinePlayerHome } | { kind: 'event'; event: OnlineVisitEvent };
-          if (!data) return;
-          if (data.kind === 'presence') {
-            this.ingestPresence(data.home);
-          } else if (data.kind === 'event' && data.event.targetPlayerId === this.playerId) {
-            this.callbacks.onVisitEventReceived(data.event);
-          }
-        };
-      } catch {
-        this.channel = null;
-      }
-    }
+    const myPresenceTopic = `${PRESENCE_TOPIC_PREFIX}${this.playerId}`;
+    const offlineWillPayload = JSON.stringify({ offline: true, playerId: this.playerId });
 
-    // 2. Real-time WSS MQTT Relay for cross-device online players
     this.mqtt = new MqttWebSocketClient({
       brokerUrls: PUBLIC_WSS_BROKERS,
       clientId: `${this.playerId}_${Math.random().toString(36).slice(2, 6)}`,
-      topics: [`${PRESENCE_TOPIC_PREFIX}+`, `${EVENTS_TOPIC_PREFIX}${this.playerId}`],
+      topics: [
+        `${PRESENCE_TOPIC_PREFIX}+`,
+        DISCOVERY_TOPIC,
+        `${EVENTS_TOPIC_PREFIX}${this.playerId}`,
+        `${GUESTS_TOPIC_PREFIX}${this.playerId}/+`
+      ],
+      will: {
+        topic: myPresenceTopic,
+        payload: offlineWillPayload
+      },
       onConnect: () => {
         this.callbacks.onStatusChange('connected');
         this.publishOwnPresence();
+        // Ask all currently online real players to immediately announce themselves!
+        this.mqtt?.publish(
+          DISCOVERY_TOPIC,
+          JSON.stringify({ type: 'who_is_online', from: this.playerId }),
+          false
+        );
       },
       onDisconnect: () => {
-        this.callbacks.onStatusChange(this.channel ? 'local_only' : 'offline');
+        this.callbacks.onStatusChange('offline');
       },
       onMessage: (topic, payload) => {
         try {
-          if (topic.startsWith(PRESENCE_TOPIC_PREFIX)) {
-            const home = JSON.parse(payload) as OnlinePlayerHome;
-            this.ingestPresence(home);
+          if (topic === DISCOVERY_TOPIC) {
+            const msg = JSON.parse(payload) as { type?: string; from?: string };
+            if (msg?.type === 'who_is_online' && msg.from !== this.playerId) {
+              const now = Date.now();
+              if (now - this.lastDiscoveryReplyMs > 1200) {
+                this.lastDiscoveryReplyMs = now;
+                this.publishOwnPresence();
+              }
+            }
+          } else if (topic.startsWith(PRESENCE_TOPIC_PREFIX)) {
+            const data = JSON.parse(payload) as OnlinePlayerHome & { offline?: boolean };
+            if (!data || data.playerId === this.playerId) return;
+            if (data.offline) {
+              if (this.livePlayers.delete(data.playerId)) {
+                this.emitPlayers();
+              }
+              return;
+            }
+            this.ingestPresence(data);
           } else if (topic === `${EVENTS_TOPIC_PREFIX}${this.playerId}`) {
             const ev = JSON.parse(payload) as OnlineVisitEvent;
             if (ev && ev.fromPlayerId !== this.playerId) {
               this.callbacks.onVisitEventReceived(ev);
             }
+          } else if (topic.startsWith(`${GUESTS_TOPIC_PREFIX}${this.playerId}/`)) {
+            const guest = JSON.parse(payload) as LiveGuestPresence & { left?: boolean };
+            if (!guest || guest.playerId === this.playerId) return;
+            if (guest.left) {
+              if (this.homeGuests.delete(guest.playerId)) {
+                this.emitGuests();
+              }
+              return;
+            }
+            this.homeGuests.set(guest.playerId, { ...guest, lastSeenUtc: Date.now() });
+            this.emitGuests();
+          } else if (
+            this.subscribedHostId &&
+            topic === `${HOST_SYNC_TOPIC_PREFIX}${this.subscribedHostId}`
+          ) {
+            const sync = JSON.parse(payload) as LiveHostSyncPacket;
+            if (sync && sync.hostPlayerId === this.subscribedHostId) {
+              this.callbacks.onHostLiveSync(sync);
+            }
           }
         } catch {
-          // Ignore malformed third-party packets safely
+          // Ignore malformed external packets safely
         }
       }
     });
     this.mqtt.connect();
 
-    // Heartbeat broadcast every 12 seconds
-    this.publishOwnPresence();
+    // Clean offline goodbye when tab/app closes
+    const handleUnload = () => {
+      this.mqtt?.disconnectGracefully(myPresenceTopic, offlineWillPayload);
+    };
+    window.addEventListener('pagehide', handleUnload);
+    window.addEventListener('beforeunload', handleUnload);
+
     this.heartbeatTimer = setInterval(() => this.publishOwnPresence(), 12_000);
-    this.pruneTimer = setInterval(() => this.pruneStalePlayers(), 8_000);
+    this.pruneTimer = setInterval(() => this.pruneStale(), 6_000);
+  }
+
+  public requestRefresh(): void {
+    this.publishOwnPresence();
+    this.mqtt?.publish(
+      DISCOVERY_TOPIC,
+      JSON.stringify({ type: 'who_is_online', from: this.playerId }),
+      false
+    );
   }
 
   public publishOwnPresence(): void {
+    if (!this.mqtt?.isConnected()) return;
     const snapshot = this.callbacks.getOwnHomeSnapshot();
     const packet: OnlinePlayerHome = {
       ...snapshot,
       playerId: this.playerId,
       homeCode: this.homeCode,
-      isLive: true,
       lastSeenUtc: Date.now()
     };
+    this.mqtt.publish(`${PRESENCE_TOPIC_PREFIX}${this.playerId}`, JSON.stringify(packet), false);
+  }
 
-    if (this.channel) {
-      try {
-        this.channel.postMessage({ kind: 'presence', home: packet });
-      } catch {
-        // Ignore
-      }
+  public subscribeToHostRoom(hostPlayerId: string | null): void {
+    if (this.subscribedHostId === hostPlayerId) return;
+    if (this.subscribedHostId) {
+      this.mqtt?.unsubscribe(`${HOST_SYNC_TOPIC_PREFIX}${this.subscribedHostId}`);
     }
-    if (this.mqtt?.isConnected()) {
-      this.mqtt.publish(`${PRESENCE_TOPIC_PREFIX}${this.playerId}`, JSON.stringify(packet), false);
+    this.subscribedHostId = hostPlayerId;
+    if (hostPlayerId) {
+      this.mqtt?.subscribe(`${HOST_SYNC_TOPIC_PREFIX}${hostPlayerId}`);
     }
+  }
+
+  public publishGuestState(hostPlayerId: string, guest: LiveGuestPresence): void {
+    if (!this.mqtt?.isConnected()) return;
+    this.mqtt.publish(
+      `${GUESTS_TOPIC_PREFIX}${hostPlayerId}/${this.playerId}`,
+      JSON.stringify(guest),
+      false
+    );
+  }
+
+  public publishGuestLeft(hostPlayerId: string): void {
+    if (!this.mqtt?.isConnected()) return;
+    this.mqtt.publish(
+      `${GUESTS_TOPIC_PREFIX}${hostPlayerId}/${this.playerId}`,
+      JSON.stringify({ playerId: this.playerId, left: true }),
+      false
+    );
+  }
+
+  public publishHostLiveSync(sync: LiveHostSyncPacket): void {
+    if (!this.mqtt?.isConnected()) return;
+    this.mqtt.publish(`${HOST_SYNC_TOPIC_PREFIX}${this.playerId}`, JSON.stringify(sync), false);
   }
 
   public sendVisitEvent(
     targetPlayerId: string,
     type: VisitInteractionKind,
     fromName: string,
-    fromCatName: string
+    fromCatName: string,
+    message?: string
   ): void {
+    if (!this.mqtt?.isConnected()) return;
     const ev: OnlineVisitEvent = {
       type,
       fromPlayerId: this.playerId,
       fromName,
       fromCatName,
       targetPlayerId,
+      message,
       sentAtUtc: Date.now()
     };
-    if (this.channel) {
-      try {
-        this.channel.postMessage({ kind: 'event', event: ev });
-      } catch {
-        // Ignore
-      }
-    }
-    if (this.mqtt?.isConnected()) {
-      this.mqtt.publish(`${EVENTS_TOPIC_PREFIX}${targetPlayerId}`, JSON.stringify(ev), false);
-    }
+    this.mqtt.publish(`${EVENTS_TOPIC_PREFIX}${targetPlayerId}`, JSON.stringify(ev), false);
   }
 
   private ingestPresence(home: OnlinePlayerHome): void {
@@ -219,22 +299,30 @@ export class OnlinePresenceService {
     if (!home.catIdentity || !home.humanAppearance) return;
     this.livePlayers.set(home.playerId, {
       ...home,
-      isLive: true,
       lastSeenUtc: Date.now()
     });
     this.emitPlayers();
   }
 
-  private pruneStalePlayers(): void {
+  private pruneStale(): void {
     const now = Date.now();
-    let changed = false;
+    let playersChanged = false;
     for (const [id, home] of this.livePlayers.entries()) {
       if (now - home.lastSeenUtc > LIVE_PLAYER_TTL_MS) {
         this.livePlayers.delete(id);
-        changed = true;
+        playersChanged = true;
       }
     }
-    if (changed) this.emitPlayers();
+    if (playersChanged) this.emitPlayers();
+
+    let guestsChanged = false;
+    for (const [id, g] of this.homeGuests.entries()) {
+      if (now - g.lastSeenUtc > LIVE_GUEST_TTL_MS) {
+        this.homeGuests.delete(id);
+        guestsChanged = true;
+      }
+    }
+    if (guestsChanged) this.emitGuests();
   }
 
   private emitPlayers(): void {
@@ -244,11 +332,14 @@ export class OnlinePresenceService {
     this.callbacks.onLivePlayersChange(sorted);
   }
 
+  private emitGuests(): void {
+    this.callbacks.onHomeGuestsChange(Array.from(this.homeGuests.values()));
+  }
+
   public dispose(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.pruneTimer) clearInterval(this.pruneTimer);
     this.mqtt?.dispose();
-    this.channel?.close();
     this.started = false;
   }
 }

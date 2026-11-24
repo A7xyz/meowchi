@@ -1,6 +1,7 @@
 /**
  * Minimal zero-dependency MQTT 3.1.1 over WebSocket (WSS) client for browser environments.
- * Supports CONNECT, CONNACK, SUBSCRIBE, QoS 0 PUBLISH, PINGREQ/PINGRESP, and auto-failover.
+ * Supports CONNECT (with Last Will & Testament for instant offline cleanup), CONNACK,
+ * dynamic SUBSCRIBE/UNSUBSCRIBE, QoS 0 PUBLISH, PINGREQ/PINGRESP, and broker failover.
  */
 
 const textEncoder = new TextEncoder();
@@ -38,16 +39,25 @@ function concatBytes(...chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function buildConnectPacket(clientId: string, keepAliveSec = 30): Uint8Array {
+function buildConnectPacket(
+  clientId: string,
+  keepAliveSec = 25,
+  will?: { topic: string; payload: string }
+): Uint8Array {
   const protocolName = encodeUtf8String('MQTT');
+  const connectFlags = will ? 0x06 : 0x02; // Clean session (+ Will Flag QoS 0)
   const headerRest = new Uint8Array([
-    0x04, // Protocol level 4 (MQTT 3.1.1)
-    0x02, // Clean session flag
+    0x04, // MQTT 3.1.1
+    connectFlags,
     (keepAliveSec >> 8) & 0xff,
     keepAliveSec & 0xff
   ]);
-  const payload = encodeUtf8String(clientId);
-  const body = concatBytes(protocolName, headerRest, payload);
+  const payloadParts = [encodeUtf8String(clientId)];
+  if (will) {
+    payloadParts.push(encodeUtf8String(will.topic));
+    payloadParts.push(encodeUtf8String(will.payload));
+  }
+  const body = concatBytes(protocolName, headerRest, ...payloadParts);
   return concatBytes(new Uint8Array([0x10]), encodeRemainingLength(body.length), body);
 }
 
@@ -62,6 +72,16 @@ function buildSubscribePacket(packetId: number, topics: string[]): Uint8Array {
   return concatBytes(new Uint8Array([0x82]), encodeRemainingLength(body.length), body);
 }
 
+function buildUnsubscribePacket(packetId: number, topics: string[]): Uint8Array {
+  const pid = new Uint8Array([(packetId >> 8) & 0xff, packetId & 0xff]);
+  const parts: Uint8Array[] = [pid];
+  for (const t of topics) {
+    parts.push(encodeUtf8String(t));
+  }
+  const body = concatBytes(...parts);
+  return concatBytes(new Uint8Array([0xa2]), encodeRemainingLength(body.length), body);
+}
+
 function buildPublishPacket(topic: string, payloadStr: string, retain = false): Uint8Array {
   const topicBytes = encodeUtf8String(topic);
   const payloadBytes = textEncoder.encode(payloadStr);
@@ -71,11 +91,13 @@ function buildPublishPacket(topic: string, payloadStr: string, retain = false): 
 }
 
 const PINGREQ_PACKET = new Uint8Array([0xc0, 0x00]);
+const DISCONNECT_PACKET = new Uint8Array([0xe0, 0x00]);
 
 export interface MqttWsOptions {
   brokerUrls: string[];
   clientId: string;
   topics: string[];
+  will?: { topic: string; payload: string };
   onConnect?: () => void;
   onDisconnect?: () => void;
   onMessage?: (topic: string, payload: string) => void;
@@ -88,12 +110,14 @@ export class MqttWebSocketClient {
   private connected = false;
   private disposed = false;
   private packetId = 1;
+  private activeTopics: Set<string>;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private rxBuffer: Uint8Array = new Uint8Array(0);
 
   constructor(opts: MqttWsOptions) {
     this.opts = opts;
+    this.activeTopics = new Set(opts.topics);
   }
 
   public connect(): void {
@@ -111,7 +135,7 @@ export class MqttWebSocketClient {
           ws.close();
           return;
         }
-        ws.send(buildConnectPacket(this.opts.clientId, 30));
+        ws.send(buildConnectPacket(this.opts.clientId, 25, this.opts.will));
       };
 
       ws.onmessage = (ev) => {
@@ -121,7 +145,7 @@ export class MqttWebSocketClient {
       };
 
       ws.onerror = () => {
-        // Closed handler triggers reconnect/failover cleanly
+        // Handled cleanly by onclose reconnect/failover
       };
 
       ws.onclose = () => {
@@ -133,19 +157,41 @@ export class MqttWebSocketClient {
         }
         if (!this.disposed) {
           this.brokerIndex = (this.brokerIndex + 1) % this.opts.brokerUrls.length;
-          this.reconnectTimer = setTimeout(() => this.connect(), 5500);
+          this.reconnectTimer = setTimeout(() => this.connect(), 4500);
         }
       };
     } catch {
       if (!this.disposed) {
         this.brokerIndex = (this.brokerIndex + 1) % this.opts.brokerUrls.length;
-        this.reconnectTimer = setTimeout(() => this.connect(), 6000);
+        this.reconnectTimer = setTimeout(() => this.connect(), 5000);
       }
     }
   }
 
   public isConnected(): boolean {
     return this.connected && this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  public subscribe(topic: string): void {
+    this.activeTopics.add(topic);
+    if (this.isConnected() && this.ws) {
+      try {
+        this.ws.send(buildSubscribePacket(this.packetId++, [topic]));
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  public unsubscribe(topic: string): void {
+    this.activeTopics.delete(topic);
+    if (this.isConnected() && this.ws) {
+      try {
+        this.ws.send(buildUnsubscribePacket(this.packetId++, [topic]));
+      } catch {
+        // Ignore
+      }
+    }
   }
 
   public publish(topic: string, payload: string, retain = false): boolean {
@@ -155,6 +201,19 @@ export class MqttWebSocketClient {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  public disconnectGracefully(offlineTopic?: string, offlinePayload?: string): void {
+    if (this.isConnected() && this.ws) {
+      try {
+        if (offlineTopic && offlinePayload !== undefined) {
+          this.ws.send(buildPublishPacket(offlineTopic, offlinePayload, false));
+        }
+        this.ws.send(DISCONNECT_PACKET);
+      } catch {
+        // Ignore
+      }
     }
   }
 
@@ -179,7 +238,7 @@ export class MqttWebSocketClient {
         this.ws.onclose = null;
         this.ws.close();
       } catch {
-        // Ignore close errors
+        // Ignore
       }
       this.ws = null;
     }
@@ -199,7 +258,6 @@ export class MqttWebSocketClient {
       const header = this.rxBuffer[0];
       const packetType = header >> 4;
 
-      // Decode MQTT variable-length remainingLength
       let multiplier = 1;
       let remLen = 0;
       let pos = 1;
@@ -221,11 +279,11 @@ export class MqttWebSocketClient {
       this.rxBuffer = this.rxBuffer.subarray(pos + remLen);
 
       if (packetType === 2) {
-        // CONNACK
         if (body.length >= 2 && body[1] === 0x00) {
           this.connected = true;
-          if (this.opts.topics.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(buildSubscribePacket(this.packetId++, this.opts.topics));
+          const topics = Array.from(this.activeTopics);
+          if (topics.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(buildSubscribePacket(this.packetId++, topics));
           }
           this.stopPing();
           this.pingTimer = setInterval(() => {
@@ -236,11 +294,10 @@ export class MqttWebSocketClient {
                 // Ignore
               }
             }
-          }, 22000);
+          }, 20000);
           this.opts.onConnect?.();
         }
       } else if (packetType === 3) {
-        // PUBLISH
         if (body.length >= 2) {
           const qos = (header >> 1) & 0x03;
           const topicLen = (body[0] << 8) | body[1];

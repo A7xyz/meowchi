@@ -1,4 +1,16 @@
-import { Check, Copy, DoorOpen, Heart, Home, Search, Users, Wifi, WifiOff, X } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  DoorOpen,
+  Heart,
+  Home,
+  RefreshCw,
+  Search,
+  Users,
+  Wifi,
+  WifiOff,
+  X
+} from 'lucide-react';
 import { useState } from 'react';
 import { getBreedDefinition } from '../config/breeds';
 import { STAGE_LABELS } from '../i18n/translations';
@@ -6,14 +18,20 @@ import { OnlinePlayerHome } from '../online/types';
 import { useGameStore } from '../store/useGameStore';
 import { useOnlineStore } from '../store/useOnlineStore';
 
+/**
+ * Real-Only Online Players & Home Visiting Modal.
+ * Lists ONLY real human players currently connected over the live WSS multiplayer relay
+ * (zero AI bots or fake NPC neighbors).
+ */
 export function OnlinePlayersModal() {
   const show = useOnlineStore((s) => s.showOnlineModal);
   const setShow = useOnlineStore((s) => s.setShowOnlineModal);
   const myHomeCode = useOnlineStore((s) => s.myHomeCode);
   const connectionStatus = useOnlineStore((s) => s.connectionStatus);
   const livePlayers = useOnlineStore((s) => s.livePlayers);
-  const communityHomes = useOnlineStore((s) => s.communityHomes);
+  const homeGuests = useOnlineStore((s) => s.homeGuests);
   const homeLikesReceived = useOnlineStore((s) => s.homeLikesReceived);
+  const refreshOnlinePlayers = useOnlineStore((s) => s.refreshOnlinePlayers);
   const visitHome = useOnlineStore((s) => s.visitHome);
   const visitByHomeCode = useOnlineStore((s) => s.visitByHomeCode);
   const getShareableInviteUrl = useOnlineStore((s) => s.getShareableInviteUrl);
@@ -60,14 +78,14 @@ export function OnlinePlayersModal() {
     } else {
       showToast(
         isTh
-          ? `ไม่พบบ้านรหัส "${codeInput.trim().toUpperCase()}" ในตอนนี้`
-          : `Home code "${codeInput.trim().toUpperCase()}" not found online.`,
+          ? `ไม่พบผู้เล่นออนไลน์รหัส "${codeInput.trim().toUpperCase()}" ในตอนนี้ (ต้องเปิดเกมออนไลน์อยู่)`
+          : `Online player "${codeInput.trim().toUpperCase()}" is not currently online.`,
         'warn'
       );
     }
   };
 
-  const renderHomeCard = (home: OnlinePlayerHome) => {
+  const renderRealPlayerCard = (home: OnlinePlayerHome) => {
     const breed = getBreedDefinition(home.catIdentity.breed);
     const stageLabel = STAGE_LABELS[home.catLifeStage][lang];
     const isHere = currentVisitId === home.playerId;
@@ -76,27 +94,19 @@ export function OnlinePlayersModal() {
       <div key={home.playerId} className="online-home-card">
         <div className="online-home-avatar" style={{ background: home.catIdentity.furColor }}>
           <span style={{ fontSize: 20 }}>🐱</span>
-          {home.isLive && <span className="online-live-dot-sm" title="Online Live" />}
+          <span className="online-live-dot-sm" title="Online Live" />
         </div>
 
         <div className="online-home-info">
           <div className="online-home-title-row">
             <span className="online-home-owner">{home.ownerName}</span>
-            {home.isLive ? (
-              <span className="online-badge live">{isTh ? 'ออนไลน์' : 'LIVE'}</span>
-            ) : (
-              <span className="online-badge neighbor">{isTh ? 'เพื่อนบ้าน' : 'Neighbor'}</span>
-            )}
+            <span className="online-badge live">{isTh ? 'ออนไลน์' : 'LIVE'}</span>
             <span className="online-code-tag">{home.homeCode}</span>
           </div>
 
           <div className="online-home-sub">
             🐾 {home.catIdentity.name} • {isTh ? breed.nameTh : breed.nameEn} • {stageLabel} • Lv.
             {home.catLevel}
-          </div>
-
-          <div className="online-home-quote">
-            “{isTh ? home.greetingTh : home.greetingEn}”
           </div>
 
           <div className="online-home-meta">
@@ -134,7 +144,7 @@ export function OnlinePlayersModal() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Users size={18} color="#c87a56" />
             <h2 className="drawer-title">
-              {isTh ? 'ผู้เล่นออนไลน์ & เยี่ยมบ้าน' : 'Online Players & Visit'}
+              {isTh ? 'ผู้เล่นออนไลน์ (คนจริง)' : 'Online Players (Live)'}
             </h2>
           </div>
           <button
@@ -147,7 +157,7 @@ export function OnlinePlayersModal() {
           </button>
         </div>
 
-        {/* Connection Status + Your Own Shareable Home Card */}
+        {/* Live Connection Status + Your Shareable Home Card */}
         <div className="online-my-home-box">
           <div className="row-between" style={{ marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600 }}>
@@ -155,21 +165,21 @@ export function OnlinePlayersModal() {
                 <>
                   <Wifi size={13} color="#4e9a62" />
                   <span style={{ color: '#3e7f4f' }}>
-                    {isTh ? 'เชื่อมต่อออนไลน์แล้ว' : 'Connected Online'}
+                    {isTh ? 'เชื่อมต่อเซิร์ฟเวอร์ออนไลน์แล้ว' : 'Connected to Live Server'}
                   </span>
                 </>
-              ) : connectionStatus === 'local_only' ? (
+              ) : connectionStatus === 'connecting' ? (
                 <>
                   <Wifi size={13} color="#c89232" />
                   <span style={{ color: '#9c6e1f' }}>
-                    {isTh ? 'ออนไลน์เฉพาะเบราว์เซอร์นี้' : 'Local Multi-Tab Mode'}
+                    {isTh ? 'กำลังเชื่อมต่อ...' : 'Connecting...'}
                   </span>
                 </>
               ) : (
                 <>
-                  <WifiOff size={13} color="#8a796b" />
-                  <span style={{ color: '#756355' }}>
-                    {isTh ? 'กำลังเชื่อมต่อ...' : 'Connecting...'}
+                  <WifiOff size={13} color="#c45c5c" />
+                  <span style={{ color: '#a04545' }}>
+                    {isTh ? 'ไม่ได้เชื่อมต่ออินเทอร์เน็ต' : 'Offline — Reconnecting...'}
                   </span>
                 </>
               )}
@@ -187,6 +197,11 @@ export function OnlinePlayersModal() {
               <div style={{ fontSize: 11, color: '#7b6859', marginTop: 2 }}>
                 {isTh ? 'รหัสบ้านของคุณ:' : 'Your Home Code:'}{' '}
                 <strong style={{ color: '#a95e3d' }}>{myHomeCode}</strong>
+                {homeGuests.length > 0 && (
+                  <span style={{ marginLeft: 8, color: '#3e7f4f', fontWeight: 600 }}>
+                    • {isTh ? `มีแขก ${homeGuests.length} คนในบ้าน` : `${homeGuests.length} guest(s) in your home`}
+                  </span>
+                )}
               </div>
             </div>
             <button type="button" className="online-copy-btn" onClick={handleCopyInvite}>
@@ -196,53 +211,71 @@ export function OnlinePlayersModal() {
           </div>
         </div>
 
-        {/* Visit by Home Code */}
+        {/* Visit a Live Friend by Home Code */}
         <form className="online-code-form" onSubmit={handleSearchCode}>
           <Search size={14} color="#8c7a6b" />
           <input
             type="text"
             value={codeInput}
             onChange={(e) => setCodeInput(e.target.value)}
-            placeholder={isTh ? 'กรอกรหัสบ้านเพื่อน เช่น MC-MAY1' : 'Enter home code (e.g. MC-MAY1)'}
+            placeholder={isTh ? 'กรอกรหัสบ้านเพื่อนที่ออนไลน์ เช่น MC-XXXX' : 'Enter live friend code (MC-XXXX)'}
             className="online-code-input"
             maxLength={12}
           />
           <button type="submit" className="online-code-submit">
-            {isTh ? 'ไปเลย' : 'Go'}
+            {isTh ? 'เยี่ยมบ้าน' : 'Visit'}
           </button>
         </form>
 
         <div className="online-list-scroll">
-          {/* LIVE ONLINE PLAYERS */}
-          <div className="online-section-label">
-            <span className="online-live-dot-inline" />
-            <span>
-              {isTh
-                ? `ผู้เล่นออนไลน์ตอนนี้ (${livePlayers.length + 1} คนรวมคุณ)`
-                : `Live Online Players (${livePlayers.length + 1} incl. you)`}
-            </span>
+          <div className="row-between" style={{ marginBottom: 6 }}>
+            <div className="online-section-label" style={{ marginBottom: 0 }}>
+              <span className="online-live-dot-inline" />
+              <span>
+                {isTh
+                  ? `ผู้เล่นจริงออนไลน์ตอนนี้ (${livePlayers.length} คน)`
+                  : `Real Players Online Now (${livePlayers.length})`}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => refreshOnlinePlayers()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(139, 114, 92, 0.12)',
+                color: '#5b483a',
+                border: 'none',
+                borderRadius: 999,
+                padding: '4px 9px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              <RefreshCw size={11} />
+              <span>{isTh ? 'รีเฟรช' : 'Refresh'}</span>
+            </button>
           </div>
 
           {livePlayers.length > 0 ? (
-            <div className="online-card-list">{livePlayers.map(renderHomeCard)}</div>
+            <div className="online-card-list">{livePlayers.map(renderRealPlayerCard)}</div>
           ) : (
             <div className="online-empty-live">
-              {isTh
-                ? 'ยังไม่มีผู้เล่นคนอื่นออนไลน์ในวินาทีนี้ • ลองเปิดเกมอีกแท็บ/ส่งลิงก์ให้เพื่อน หรือแวะเยี่ยมบ้านเพื่อนบ้าน Meowchi ด้านล่างได้เลย!'
-                : 'No other live players connected right now. Share your link with a friend (or open another tab) or visit our Meowchi Neighbors below!'}
+              <div style={{ fontWeight: 700, marginBottom: 4, color: '#4c3b2f' }}>
+                {isTh
+                  ? 'ยังไม่มีผู้เล่นคนอื่นออนไลน์บนเครื่องอื่นในขณะนี้'
+                  : 'No other real players are online right now'}
+              </div>
+              <div>
+                {isTh
+                  ? 'กดปุ่ม "แชร์ลิงก์บ้าน" ส่งให้เพื่อนเปิดบนมือถือ/คอมอีกเครื่อง หรือเปิดเกมบนอีกเครื่องหนึ่ง รายชื่อผู้เล่นจะปรากฏที่นี่ทันทีโดยอัตโนมัติ (ไม่มีบอท AI)'
+                  : 'Tap "Share Link" to invite a friend on another phone or computer — real players appear here automatically in real time (zero AI bots).'}
+              </div>
             </div>
           )}
-
-          {/* COMMUNITY NEIGHBOR HOMES */}
-          <div className="online-section-label" style={{ marginTop: 14 }}>
-            <span>🏡</span>
-            <span>
-              {isTh
-                ? `เพื่อนบ้าน Meowchi (${communityHomes.length} บ้าน)`
-                : `Meowchi Community Homes (${communityHomes.length})`}
-            </span>
-          </div>
-          <div className="online-card-list">{communityHomes.map(renderHomeCard)}</div>
         </div>
       </div>
     </div>

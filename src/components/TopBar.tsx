@@ -38,6 +38,7 @@ export function TopBar() {
   const syncRealTimeClocks = useGameStore((s) => s.syncRealTimeClocks);
   const setShowOnlineModal = useOnlineStore((s) => s.setShowOnlineModal);
   const livePlayersCount = useOnlineStore((s) => s.livePlayers.length);
+  const homeGuests = useOnlineStore((s) => s.homeGuests);
   const onlineStatus = useOnlineStore((s) => s.connectionStatus);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -221,6 +222,26 @@ export function TopBar() {
           </div>
         </button>
       </div>
+
+      {/* Live Real Guest Banner when another human player visits YOUR home! */}
+      {!isInteracting && homeGuests.length > 0 && (
+        <div
+          className="behavior-chip"
+          style={{
+            alignSelf: 'flex-start',
+            background: 'rgba(225, 244, 230, 0.94)',
+            color: '#296b3c',
+            borderColor: 'rgba(72, 168, 99, 0.35)'
+          }}
+        >
+          <span>👤</span>
+          <span>
+            {lang === 'th'
+              ? `${homeGuests[0].ownerName} กำลังมาเยี่ยมบ้านคุณ!`
+              : `${homeGuests[0].ownerName} is visiting your home!`}
+          </span>
+        </div>
+      )}
 
       {/* Natural Non-Blocking Welfare Warning (No numerical hunger/fullness bar!) */}
       {!isInteracting && topWarning && (

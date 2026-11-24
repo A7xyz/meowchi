@@ -1204,7 +1204,19 @@ export class MeowchiPhaserScene extends Phaser.Scene {
       this.lastHostAppSig = hostAppSig;
       this.activeHostAnimKey = '';
     }
-    this.playHostHumanAction('idle', cur.home.humanAppearance);
+    const hostAction: HumanSpriteAction =
+      cur.hostAnim === 'walk'
+        ? 'walk'
+        : cur.hostAnim === 'kneel_pet'
+          ? 'pet_cat'
+          : cur.hostAnim === 'brush'
+            ? 'brush_cat'
+            : cur.hostAnim === 'pour_food' || cur.hostAnim === 'bottle_feed'
+              ? 'pour_food'
+              : cur.hostAnim === 'play_toy'
+                ? 'play_toy'
+                : 'idle';
+    this.playHostHumanAction(hostAction, cur.home.humanAppearance);
 
     this.hostNameTag
       .setText(`🏡 ${cur.home.ownerName}`)
@@ -1305,8 +1317,49 @@ export class MeowchiPhaserScene extends Phaser.Scene {
       return;
     }
 
-    // Ensure visit-only overlays stay hidden at home
-    if (this.hostHumanSprite.visible) {
+    // Render real live human guest visiting YOUR home (if any!) & stream host state back!
+    const onlineState = useOnlineStore.getState();
+    const activeGuest = onlineState.homeGuests[0] ?? null;
+    if (activeGuest) {
+      onlineState.publishHostLiveSyncIfNeeded();
+      const gProj = worldToScreen(activeGuest.x, activeGuest.z, 0);
+      const gFacingRight = Math.sin(activeGuest.rotationY) >= -0.05;
+
+      this.hostHumanSprite.setVisible(true);
+      this.hostHumanShadow.setVisible(true);
+      this.hostHumanSprite.setPosition(
+        Phaser.Math.Linear(this.hostHumanSprite.x || gProj.x, gProj.x, clamp(dt * 9, 0, 1)),
+        Phaser.Math.Linear(this.hostHumanSprite.y || gProj.y, gProj.y, clamp(dt * 9, 0, 1))
+      );
+      this.hostHumanSprite.setScale(0.86 * gProj.depthScale);
+      this.hostHumanSprite.setFlipX(!gFacingRight);
+      this.hostHumanSprite.setDepth(computeDepth(this.hostHumanSprite.y, 11));
+      this.hostHumanShadow.setPosition(this.hostHumanSprite.x, this.hostHumanSprite.y - 4);
+      this.hostHumanShadow.setSize(94 * gProj.depthScale, 28 * gProj.depthScale);
+      this.hostHumanShadow.setDepth(computeDepth(this.hostHumanSprite.y, 7));
+
+      const gSig = getHumanAppearanceSignature(activeGuest.humanAppearance);
+      if (gSig !== this.lastHostAppSig) {
+        this.lastHostAppSig = gSig;
+        this.activeHostAnimKey = '';
+      }
+      this.playHostHumanAction(activeGuest.anim, activeGuest.humanAppearance);
+
+      this.hostNameTag
+        .setText(`👤 ${activeGuest.ownerName}`)
+        .setPosition(this.hostHumanSprite.x, this.hostHumanSprite.y - 178 * gProj.depthScale)
+        .setVisible(true);
+
+      if (activeGuest.bubbleText && Date.now() < activeGuest.bubbleUntilMs) {
+        this.waveBubbleTag
+          .setText(activeGuest.bubbleText)
+          .setPosition(this.hostHumanSprite.x, this.hostHumanSprite.y - 214 * gProj.depthScale)
+          .setVisible(true);
+      } else {
+        this.waveBubbleTag.setVisible(false);
+      }
+      this.visitorNameTag.setVisible(false);
+    } else if (this.hostHumanSprite.visible) {
       this.hostHumanSprite.setVisible(false);
       this.hostHumanShadow.setVisible(false);
       this.hostNameTag.setVisible(false);
